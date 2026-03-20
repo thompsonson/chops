@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>chops</title>
+<script src="https://unpkg.com/mqtt@5/dist/mqtt.min.js"></script>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --border: #0f3460;
+    --text: #e0e0e0;
+    --muted: #888;
+    --accent: #e94560;
+    --ok: #4ecca3;
+    --error: #e94560;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    padding: 1rem;
+    max-width: 800px;
+    margin: 0 auto;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 1.25rem; font-weight: 600; }
+  .status {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--error);
+    transition: background 0.3s;
+  }
+  .status.connected { background: var(--ok); }
+  .status-text { font-size: 0.75rem; color: var(--muted); }
+  .input-row {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+  }
+  input[type="text"] {
+    flex: 1;
+    padding: 0.6rem 0.8rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 0.9rem;
+    outline: none;
+  }
+  input[type="text"]:focus { border-color: var(--accent); }
+  input[type="text"]::placeholder { color: var(--muted); }
+  button {
+    padding: 0.6rem 1.2rem;
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 0.9rem;
+    font-weight: 500;
+  }
+  button:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .log {
+    flex: 1;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    padding: 0.5rem;
+    min-height: 300px;
+  }
+  .log-entry {
+    padding: 0.4rem 0.5rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.8rem;
+    line-height: 1.4;
+  }
+  .log-entry:last-child { border-bottom: none; }
+  .log-entry .time { color: var(--muted); margin-right: 0.5rem; }
+  .log-entry .topic { color: var(--accent); margin-right: 0.5rem; }
+  .log-entry.ok .badge { color: var(--ok); }
+  .log-entry.error .badge { color: var(--error); }
+  .log-entry.sent { opacity: 0.7; }
+  .log-entry.sent .badge { color: var(--muted); }
+  .empty { color: var(--muted); text-align: center; padding: 2rem; font-size: 0.85rem; }
+  .help {
+    margin-top: 0.75rem;
+    font-size: 0.7rem;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>chops</h1>
+    <div class="status" id="status"></div>
+    <span class="status-text" id="status-text">disconnected</span>
+  </header>
+
+  <div class="input-row">
+    <input type="text" id="cmd" placeholder="in chops run cargo test" autofocus>
+    <button id="send" disabled>Send</button>
+  </div>
+
+  <div class="log" id="log">
+    <div class="empty">No messages yet. Send a command or wait for responses.</div>
+  </div>
+
+  <div class="help">
+    <strong>Commands:</strong>
+    in &lt;project&gt; run &lt;command&gt; &nbsp;|&nbsp;
+    in &lt;project&gt; tell claude &lt;message&gt; ... over &nbsp;|&nbsp;
+    run &lt;command&gt; &nbsp;|&nbsp;
+    open vscode &lt;file&gt;
+  </div>
+
+<script>
+const MQTT_WS_PORT = 9884;
+const TOPIC_TRANSCRIPTIONS = 'voice/transcriptions';
+const TOPIC_RESPONSES = 'agent/responses';
+const TOPIC_STATUS = 'plugins/status/#';
+const TOPIC_COMMANDS = 'agent/commands/#';
+
+const statusEl = document.getElementById('status');
+const statusText = document.getElementById('status-text');
+const cmdEl = document.getElementById('cmd');
+const sendBtn = document.getElementById('send');
+const logEl = document.getElementById('log');
+
+let client = null;
+let firstMessage = true;
+
+function connect() {
+  const host = window.location.hostname || 'localhost';
+  const url = `ws://${host}:${MQTT_WS_PORT}`;
+
+  client = mqtt.connect(url, {
+    clientId: `chops-web-${Math.random().toString(36).slice(2, 8)}`,
+    keepalive: 30,
+    reconnectPeriod: 3000,
+  });
+
+  client.on('connect', () => {
+    statusEl.classList.add('connected');
+    statusText.textContent = 'connected';
+    sendBtn.disabled = false;
+
+    client.subscribe(TOPIC_RESPONSES);
+    client.subscribe(TOPIC_STATUS);
+    client.subscribe(TOPIC_COMMANDS);
+  });
+
+  client.on('close', () => {
+    statusEl.classList.remove('connected');
+    statusText.textContent = 'disconnected';
+    sendBtn.disabled = true;
+  });
+
+  client.on('error', () => {
+    statusEl.classList.remove('connected');
+    statusText.textContent = 'error';
+  });
+
+  client.on('message', (topic, payload) => {
+    const text = payload.toString();
+    let entry;
+
+    if (topic === TOPIC_RESPONSES || topic === 'agent/responses') {
+      try {
+        const msg = JSON.parse(text);
+        const isOk = msg.status === 'ok';
+        entry = createLogEntry(
+          isOk ? 'ok' : 'error',
+          msg.topic || topic,
+          isOk ? (msg.output || 'ok') : (msg.error || 'error')
+        );
+      } catch {
+        entry = createLogEntry('ok', topic, text);
+      }
+    } else if (topic.startsWith('plugins/status/')) {
+      entry = createLogEntry('ok', topic, text);
+    } else if (topic.startsWith('agent/commands/')) {
+      entry = createLogEntry('ok', topic, text);
+    }
+
+    if (entry) appendLog(entry);
+  });
+}
+
+function sendCommand() {
+  const text = cmdEl.value.trim();
+  if (!text || !client) return;
+
+  const payload = JSON.stringify({
+    text: text,
+    is_final: true,
+    timestamp: new Date().toISOString()
+  });
+
+  client.publish(TOPIC_TRANSCRIPTIONS, payload);
+  appendLog(createLogEntry('sent', 'sent', text));
+  cmdEl.value = '';
+  cmdEl.focus();
+}
+
+function createLogEntry(type, topic, content) {
+  const div = document.createElement('div');
+  div.className = `log-entry ${type}`;
+
+  const now = new Date().toLocaleTimeString('en-GB', { hour12: false });
+  const shortTopic = topic.replace('agent/commands/', '').replace('agent/', '').replace('plugins/status/', 'status/');
+
+  div.innerHTML = `<span class="time">${now}</span><span class="badge">[${type}]</span> <span class="topic">${shortTopic}</span> ${escapeHtml(content)}`;
+  return div;
+}
+
+function appendLog(entry) {
+  if (firstMessage) {
+    logEl.innerHTML = '';
+    firstMessage = false;
+  }
+  logEl.appendChild(entry);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+sendBtn.addEventListener('click', sendCommand);
+cmdEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') sendCommand();
+});
+
+connect();
+</script>
+</body>
+</html>
