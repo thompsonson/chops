@@ -1,5 +1,6 @@
 use anyhow::Result;
 use rumqttc::{AsyncClient, Event, Incoming, MqttOptions, QoS};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::process::Stdio;
 use std::time::Duration;
@@ -7,22 +8,39 @@ use tokio::process::Command;
 use tracing::{info, warn};
 
 const MQTT_HOST: &str = "localhost";
-const MQTT_PORT: u16 = 1883;
+const DEFAULT_MQTT_PORT: u16 = 1884;
+
+fn mqtt_port() -> u16 {
+    std::env::var("CHOPS_MQTT_PORT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_MQTT_PORT)
+}
 const VSCODE_TOPIC: &str = "agent/commands/vscode";
 const TERMUX_TOPIC: &str = "agent/commands/termux";
+const TMUX_TOPIC: &str = "agent/commands/tmux";
 const RESPONSES_TOPIC: &str = "agent/responses";
 const STATUS_TOPIC: &str = "plugins/status/runner";
+
+/// Matches the TmuxCommand struct from agent-core.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct TmuxCommand {
+    session: Option<String>,
+    pane: String,
+    command: String,
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    let mut mqttoptions = MqttOptions::new("plugin-runner", MQTT_HOST, MQTT_PORT);
+    let mut mqttoptions = MqttOptions::new("plugin-runner", MQTT_HOST, mqtt_port());
     mqttoptions.set_keep_alive(Duration::from_secs(30));
     let (client, mut eventloop) = AsyncClient::new(mqttoptions, 10);
 
     client.subscribe(VSCODE_TOPIC, QoS::AtMostOnce).await?;
     client.subscribe(TERMUX_TOPIC, QoS::AtMostOnce).await?;
+    client.subscribe(TMUX_TOPIC, QoS::AtMostOnce).await?;
 
     // Announce availability.
     client
@@ -42,6 +60,7 @@ async fn main() -> Result<()> {
                     let result = match topic.as_str() {
                         VSCODE_TOPIC => handle_vscode(&payload).await,
                         TERMUX_TOPIC => handle_termux(&payload).await,
+                        TMUX_TOPIC => handle_tmux(&payload).await,
                         _ => Err(anyhow::anyhow!("Unknown topic: {topic}")),
                     };
 
@@ -59,7 +78,12 @@ async fn main() -> Result<()> {
                     };
 
                     if let Err(e) = client_clone
-                        .publish(RESPONSES_TOPIC, QoS::AtLeastOnce, false, response.to_string())
+                        .publish(
+                            RESPONSES_TOPIC,
+                            QoS::AtLeastOnce,
+                            false,
+                            response.to_string(),
+                        )
                         .await
                     {
                         warn!("Failed to publish response: {e}");
@@ -72,6 +96,70 @@ async fn main() -> Result<()> {
             }
             _ => {}
         }
+    }
+}
+
+/// Send keys to a tmux session pane.
+///
+/// Pane mapping (matches `dev` command layouts):
+///   "claude" → session:1.1 (left pane)
+///   "shell"  → session:1.2 (right pane in claude layout, or 1.1 in default)
+///
+/// If no session is specified, queries tmux for the currently attached session.
+async fn handle_tmux(payload: &str) -> Result<String> {
+    let cmd: TmuxCommand = serde_json::from_str(payload)?;
+    info!(
+        "Tmux command: session={:?} pane={} cmd={}",
+        cmd.session, cmd.pane, cmd.command
+    );
+
+    let session = match cmd.session {
+        Some(s) => s,
+        None => get_active_tmux_session().await?,
+    };
+
+    // Verify the session exists.
+    let check = run_command("tmux", &["has-session", "-t", &session]).await;
+    if check.is_err() {
+        return Err(anyhow::anyhow!("tmux session '{}' not found", session));
+    }
+
+    // Map pane name to tmux target.
+    let pane_index = match cmd.pane.as_str() {
+        "claude" => "1",
+        _ => "2", // "shell" or default → right pane
+    };
+
+    // Try session:1.pane_index first; fall back to session:1.1 for single-pane sessions.
+    let target = format!("{}:1.{}", session, pane_index);
+    let fallback_target = format!("{}:1.1", session);
+
+    let target = if run_command("tmux", &["display-message", "-t", &target, "-p", ""])
+        .await
+        .is_ok()
+    {
+        target
+    } else {
+        info!(
+            "Pane {} not found, falling back to {}",
+            target, fallback_target
+        );
+        fallback_target
+    };
+
+    let output = run_command("tmux", &["send-keys", "-t", &target, &cmd.command, "Enter"]).await?;
+
+    Ok(format!("Sent to {}: {}", target, output))
+}
+
+/// Get the currently attached tmux session name.
+async fn get_active_tmux_session() -> Result<String> {
+    let output = run_command("tmux", &["display-message", "-p", "#{session_name}"]).await?;
+    let name = output.trim().to_string();
+    if name.is_empty() {
+        Err(anyhow::anyhow!("No active tmux session"))
+    } else {
+        Ok(name)
     }
 }
 

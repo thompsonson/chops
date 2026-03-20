@@ -9,11 +9,18 @@ use tracing::{info, warn};
 
 const SILENCE_THRESHOLD_MS: u64 = 800;
 const MQTT_HOST: &str = "localhost";
-const MQTT_PORT: u16 = 1883;
+const DEFAULT_MQTT_PORT: u16 = 1884;
 const TRANSCRIPTION_TOPIC: &str = "voice/transcriptions";
 const WHISPER_MODEL: &str = "models/ggml-base.en.bin";
 const WHISPER_STEP_MS: &str = "1000";
 const WHISPER_LENGTH_MS: &str = "3000";
+
+fn mqtt_port() -> u16 {
+    std::env::var("CHOPS_MQTT_PORT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_MQTT_PORT)
+}
 
 struct TranscriptionBuffer {
     pending: String,
@@ -59,7 +66,7 @@ impl TranscriptionBuffer {
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    let mut mqttoptions = MqttOptions::new("stt-publisher", MQTT_HOST, MQTT_PORT);
+    let mut mqttoptions = MqttOptions::new("stt-publisher", MQTT_HOST, mqtt_port());
     mqttoptions.set_keep_alive(Duration::from_secs(30));
     let (client, mut eventloop) = AsyncClient::new(mqttoptions, 10);
 
@@ -85,9 +92,12 @@ async fn main() -> Result<()> {
 async fn run_whisper(client: &AsyncClient) -> Result<()> {
     let mut child = Command::new("./whisper.cpp/stream")
         .args([
-            "-m", WHISPER_MODEL,
-            "--step", WHISPER_STEP_MS,
-            "--length", WHISPER_LENGTH_MS,
+            "-m",
+            WHISPER_MODEL,
+            "--step",
+            WHISPER_STEP_MS,
+            "--length",
+            WHISPER_LENGTH_MS,
         ])
         .stdout(Stdio::piped())
         .spawn()?;
@@ -144,7 +154,12 @@ async fn publish_final(client: &AsyncClient, text: String) {
         "timestamp": chrono::Utc::now().to_rfc3339(),
     });
     if let Err(e) = client
-        .publish(TRANSCRIPTION_TOPIC, QoS::AtMostOnce, false, payload.to_string())
+        .publish(
+            TRANSCRIPTION_TOPIC,
+            QoS::AtMostOnce,
+            false,
+            payload.to_string(),
+        )
         .await
     {
         warn!("Failed to publish final transcription: {e}");
@@ -158,9 +173,89 @@ async fn publish_partial(client: &AsyncClient, text: &str) {
         "timestamp": chrono::Utc::now().to_rfc3339(),
     });
     if let Err(e) = client
-        .publish(TRANSCRIPTION_TOPIC, QoS::AtMostOnce, false, payload.to_string())
+        .publish(
+            TRANSCRIPTION_TOPIC,
+            QoS::AtMostOnce,
+            false,
+            payload.to_string(),
+        )
         .await
     {
         warn!("Failed to publish partial: {e}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn buffer_starts_empty() {
+        let buf = TranscriptionBuffer::new();
+        assert!(buf.pending.is_empty());
+        assert!(!buf.is_finalized());
+    }
+
+    #[test]
+    fn buffer_update_replaces_pending() {
+        let mut buf = TranscriptionBuffer::new();
+        buf.update("hello");
+        assert_eq!(buf.pending, "hello");
+        buf.update("hello world");
+        assert_eq!(buf.pending, "hello world");
+    }
+
+    #[test]
+    fn buffer_update_trims_whitespace() {
+        let mut buf = TranscriptionBuffer::new();
+        buf.update("  hello world  ");
+        assert_eq!(buf.pending, "hello world");
+    }
+
+    #[test]
+    fn buffer_take_drains() {
+        let mut buf = TranscriptionBuffer::new();
+        buf.update("hello");
+        let text = buf.take();
+        assert_eq!(text, "hello");
+        assert!(buf.pending.is_empty());
+    }
+
+    #[test]
+    fn buffer_not_finalized_immediately() {
+        let mut buf = TranscriptionBuffer::new();
+        buf.update("hello");
+        // Just updated — should not be finalized yet.
+        assert!(!buf.is_finalized());
+    }
+
+    #[test]
+    fn buffer_finalized_after_silence() {
+        let buf = TranscriptionBuffer {
+            pending: "hello".to_string(),
+            last_update: Instant::now() - Duration::from_secs(2),
+            silence_threshold: Duration::from_millis(SILENCE_THRESHOLD_MS),
+        };
+        assert!(buf.is_finalized());
+    }
+
+    #[test]
+    fn buffer_empty_never_finalized() {
+        let buf = TranscriptionBuffer {
+            pending: String::new(),
+            last_update: Instant::now() - Duration::from_secs(10),
+            silence_threshold: Duration::from_millis(SILENCE_THRESHOLD_MS),
+        };
+        assert!(!buf.is_finalized());
+    }
+
+    #[test]
+    fn segment_end_detection() {
+        assert!(TranscriptionBuffer::looks_like_segment_end("hello."));
+        assert!(TranscriptionBuffer::looks_like_segment_end("what?"));
+        assert!(TranscriptionBuffer::looks_like_segment_end("wow!"));
+        assert!(!TranscriptionBuffer::looks_like_segment_end("hello"));
+        assert!(!TranscriptionBuffer::looks_like_segment_end("hello,"));
+        assert!(!TranscriptionBuffer::looks_like_segment_end(""));
     }
 }
