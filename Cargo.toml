@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "crates/stt-publisher",
+    "crates/agent-core",
+    "crates/plugin-runner",
+]
+resolver = "2"
