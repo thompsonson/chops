@@ -1,9 +1,9 @@
 //! Integration tests for the chops MQTT pipeline.
 //!
-//! These tests require a running Mosquitto broker on localhost:1883.
-//! Skip with: cargo test -- --skip integration
-//! Or gate on CI with an env var check.
+//! These tests require a running Mosquitto broker on the configured port.
+//! Tests auto-skip if the broker is unavailable.
 
+use agent_core::intent::{parse_intent, Intent, ParseContext, TmuxCommand};
 use rumqttc::{AsyncClient, Event, Incoming, MqttOptions, QoS};
 use serde_json::json;
 use std::time::Duration;
@@ -19,6 +19,17 @@ fn mqtt_port() -> u16 {
 
 fn mqtt_available() -> bool {
     std::net::TcpStream::connect(("127.0.0.1", mqtt_port())).is_ok()
+}
+
+fn test_ctx() -> ParseContext {
+    ParseContext {
+        known_projects: vec![
+            "chops".into(),
+            "manta-deploy".into(),
+            "atomicguard".into(),
+            "dotfiles".into(),
+        ],
+    }
 }
 
 /// Helper: create an MQTT client with a unique ID.
@@ -46,26 +57,21 @@ async fn recv_publish(eventloop: &mut rumqttc::EventLoop, timeout: Duration) -> 
     }
 }
 
-#[tokio::test]
-async fn agent_routes_vscode_command() {
-    if !mqtt_available() {
-        eprintln!("SKIP: mosquitto not running on localhost:{}", mqtt_port());
-        return;
-    }
-
-    // Subscriber listens on the vscode command topic.
-    let (sub_client, mut sub_eventloop) = make_client("test-sub-vscode").await;
+/// Helper: publish a transcription and collect the routed command from the expected topic.
+async fn publish_and_route(text: &str, expected_topic: &str) -> Option<String> {
+    // Subscriber listens on the expected command topic.
+    let (sub_client, mut sub_eventloop) =
+        make_client(&format!("test-sub-{}", text.len())).await;
     sub_client
-        .subscribe("agent/commands/vscode", QoS::AtMostOnce)
+        .subscribe(expected_topic, QoS::AtMostOnce)
         .await
         .unwrap();
-    // Drain ConnAck + SubAck.
     let _ = sub_eventloop.poll().await;
     let _ = sub_eventloop.poll().await;
 
-    // Publisher simulates what agent-core does: parse intent, dispatch.
-    // We test the routing logic end-to-end by having a "mini agent" inline.
-    let (pub_client, mut pub_eventloop) = make_client("test-pub-agent").await;
+    // Publisher simulates agent-core: parse intent, dispatch to topic.
+    let (pub_client, mut pub_eventloop) =
+        make_client(&format!("test-pub-{}", text.len())).await;
     tokio::spawn(async move {
         loop {
             if pub_eventloop.poll().await.is_err() {
@@ -74,27 +80,97 @@ async fn agent_routes_vscode_command() {
         }
     });
 
-    let text = "open vscode README.md";
-    // Simulate agent-core's parse_intent + dispatch.
-    let text_lower = text.to_lowercase();
-    let topic = if text_lower.contains("open") && text_lower.contains("vscode") {
-        "agent/commands/vscode"
+    let ctx = test_ctx();
+    if let Some(m) = parse_intent(text, &ctx) {
+        let (topic, payload) = match m.intent {
+            Intent::Tmux(ref cmd) => {
+                ("agent/commands/tmux", serde_json::to_string(cmd).unwrap())
+            }
+            Intent::Vscode(ref f) => ("agent/commands/vscode", f.clone()),
+            Intent::Termux(ref c) => ("agent/commands/termux", c.clone()),
+        };
+
+        if topic != expected_topic {
+            return None;
+        }
+
+        pub_client
+            .publish(topic, QoS::AtMostOnce, false, &payload)
+            .await
+            .unwrap();
+
+        recv_publish(&mut sub_eventloop, Duration::from_secs(3)).await
     } else {
-        panic!("Expected vscode route");
-    };
+        None
+    }
+}
 
-    pub_client
-        .publish(topic, QoS::AtMostOnce, false, text)
-        .await
-        .unwrap();
+// --- Pipeline: intent parsing → MQTT routing ---
 
-    // Subscriber should receive the command.
-    let received = recv_publish(&mut sub_eventloop, Duration::from_secs(3)).await;
-    assert_eq!(received.as_deref(), Some("open vscode README.md"));
+#[tokio::test]
+async fn pipeline_routes_tmux_run_command() {
+    if !mqtt_available() {
+        eprintln!("SKIP: mosquitto not running on localhost:{}", mqtt_port());
+        return;
+    }
+
+    let received = publish_and_route("in chops run cargo test", "agent/commands/tmux").await;
+    assert!(received.is_some());
+    let cmd: TmuxCommand = serde_json::from_str(&received.unwrap()).unwrap();
+    assert_eq!(cmd.session, Some("chops".into()));
+    assert_eq!(cmd.pane, "shell");
+    assert_eq!(cmd.command, "cargo test");
 }
 
 #[tokio::test]
-async fn agent_ignores_partial_transcriptions() {
+async fn pipeline_routes_tmux_tell_claude() {
+    if !mqtt_available() {
+        eprintln!("SKIP: mosquitto not running on localhost:{}", mqtt_port());
+        return;
+    }
+
+    let received =
+        publish_and_route("in chops tell claude fix the tests", "agent/commands/tmux").await;
+    assert!(received.is_some());
+    let cmd: TmuxCommand = serde_json::from_str(&received.unwrap()).unwrap();
+    assert_eq!(cmd.session, Some("chops".into()));
+    assert_eq!(cmd.pane, "claude");
+    assert_eq!(cmd.command, "fix the tests");
+}
+
+#[tokio::test]
+async fn pipeline_routes_vscode_command() {
+    if !mqtt_available() {
+        eprintln!("SKIP: mosquitto not running on localhost:{}", mqtt_port());
+        return;
+    }
+
+    let received = publish_and_route("open vscode README.md", "agent/commands/vscode").await;
+    assert_eq!(received.as_deref(), Some("readme.md"));
+}
+
+#[tokio::test]
+async fn pipeline_routes_noisy_whisper_input() {
+    if !mqtt_available() {
+        eprintln!("SKIP: mosquitto not running on localhost:{}", mqtt_port());
+        return;
+    }
+
+    // Filler + punctuation + synonym + project typo
+    let received = publish_and_route(
+        "Uh, okay, please in chop execute cargo test.",
+        "agent/commands/tmux",
+    )
+    .await;
+    assert!(received.is_some());
+    let cmd: TmuxCommand = serde_json::from_str(&received.unwrap()).unwrap();
+    assert_eq!(cmd.session, Some("chops".into())); // fuzzy matched
+    assert_eq!(cmd.pane, "shell");
+    assert_eq!(cmd.command, "cargo test");
+}
+
+#[tokio::test]
+async fn pipeline_ignores_partial_transcriptions() {
     if !mqtt_available() {
         eprintln!("SKIP: mosquitto not running on localhost:{}", mqtt_port());
         return;
@@ -125,7 +201,12 @@ async fn agent_ignores_partial_transcriptions() {
         "timestamp": "2026-01-01T00:00:00Z"
     });
     pub_client
-        .publish("voice/transcriptions", QoS::AtMostOnce, false, partial.to_string())
+        .publish(
+            "voice/transcriptions",
+            QoS::AtMostOnce,
+            false,
+            partial.to_string(),
+        )
         .await
         .unwrap();
 
@@ -138,7 +219,7 @@ async fn agent_ignores_partial_transcriptions() {
 }
 
 #[tokio::test]
-async fn roundtrip_publish_subscribe() {
+async fn pipeline_roundtrip_publish_subscribe() {
     if !mqtt_available() {
         eprintln!("SKIP: mosquitto not running on localhost:{}", mqtt_port());
         return;
@@ -161,9 +242,15 @@ async fn roundtrip_publish_subscribe() {
         }
     });
 
-    let payload = json!({"text": "hello", "is_final": true, "timestamp": "2026-01-01T00:00:00Z"});
+    let payload =
+        json!({"text": "hello", "is_final": true, "timestamp": "2026-01-01T00:00:00Z"});
     pub_client
-        .publish("test/roundtrip", QoS::AtMostOnce, false, payload.to_string())
+        .publish(
+            "test/roundtrip",
+            QoS::AtMostOnce,
+            false,
+            payload.to_string(),
+        )
         .await
         .unwrap();
 

@@ -39,6 +39,8 @@ const FILLER_WORDS: &[&str] = &[
     "uh", "um", "like", "please", "okay", "ok", "hey", "so", "well", "just", "actually", "right",
 ];
 
+/// Action keywords that map to canonical forms.
+/// Only applied to the first few structural words, not to command payloads.
 fn normalize_synonym(word: &str) -> &str {
     match word {
         "execute" | "start" | "launch" | "exec" => "run",
@@ -48,15 +50,90 @@ fn normalize_synonym(word: &str) -> &str {
     }
 }
 
-/// Strip punctuation, filler words, and normalize synonyms.
+/// Strip filler words, normalize synonyms on structural keywords only.
+/// Punctuation is stripped only at word boundaries (trailing/leading), preserving
+/// characters within words (e.g., "file.txt" stays intact).
 fn preprocess(text: &str) -> String {
-    text.to_lowercase()
-        .replace(['.', ',', '!', '?', ';', ':'], "")
+    let words: Vec<String> = text
+        .to_lowercase()
         .split_whitespace()
-        .filter(|w| !FILLER_WORDS.contains(w))
-        .map(normalize_synonym)
+        .map(|w| {
+            w.trim_matches(|c: char| matches!(c, '.' | ',' | '!' | '?' | ';' | ':'))
+                .to_string()
+        })
+        .filter(|w| !w.is_empty() && !FILLER_WORDS.contains(&w.as_str()))
+        .collect();
+
+    // Find where the command payload starts (after structural keywords).
+    // Normalize synonyms only for the structural prefix (first 4-5 words).
+    let structural_len = detect_structural_prefix(&words);
+
+    words
+        .iter()
+        .enumerate()
+        .map(|(i, w)| {
+            if i < structural_len {
+                normalize_synonym(w).to_string()
+            } else {
+                w.clone()
+            }
+        })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// Determine how many leading words are structural keywords vs. command payload.
+/// Returns the index where the command payload begins.
+fn detect_structural_prefix(words: &[String]) -> usize {
+    if words.is_empty() {
+        return 0;
+    }
+
+    // "in <project> tell claude <payload>" → structural = 4
+    if words.len() >= 4
+        && words[0] == "in"
+        && (words[2] == "tell"
+            || normalize_synonym(&words[2]) == "tell"
+            || words[2] == "run"
+            || normalize_synonym(&words[2]) == "run")
+    {
+        if (words[2] == "tell" || normalize_synonym(&words[2]) == "tell")
+            && words.len() >= 5
+            && words[3] == "claude"
+        {
+            return 4; // "in X tell claude" — payload starts at 4
+        }
+        return 3; // "in X run" — payload starts at 3
+    }
+
+    // "run <payload>" → structural = 1
+    if words[0] == "run" || normalize_synonym(&words[0]) == "run" {
+        return 1;
+    }
+
+    // "open vscode/editor <payload>" → structural = 2
+    if words.len() >= 2
+        && words[0] == "open"
+        && (words[1] == "vscode"
+            || normalize_synonym(&words[1]) == "vscode"
+            || words[1] == "terminal"
+            || words[1] == "termux")
+    {
+        return 2;
+    }
+
+    // "vscode <payload>" → structural = 1
+    if words[0] == "vscode" || normalize_synonym(&words[0]) == "vscode" {
+        return 1;
+    }
+
+    // "terminal/termux ..." → structural = 1
+    if words[0] == "terminal" || words[0] == "termux" {
+        return 1;
+    }
+
+    // Unknown — normalize everything (safe default for non-matching input)
+    words.len()
 }
 
 // --- Regex patterns (compiled once) ---
@@ -450,5 +527,285 @@ mod tests {
                 command: "ls".into(),
             })
         );
+    }
+
+    // --- Whisper noise corpus ---
+    // Realistic whisper.cpp transcription outputs with common artifacts:
+    // trailing periods, capitalized sentences, filler words, hesitations,
+    // punctuation mid-sentence, synonym substitutions, and project name typos.
+
+    #[test]
+    fn whisper_trailing_period() {
+        let m = parse_intent("Run cargo test.", &empty_ctx()).unwrap();
+        assert_eq!(
+            m.intent,
+            Intent::Tmux(TmuxCommand {
+                session: None,
+                pane: "shell".into(),
+                command: "cargo test".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn whisper_multiple_filler_words() {
+        let m = parse_intent("Um, okay, so, run cargo build.", &empty_ctx()).unwrap();
+        assert_eq!(
+            m.intent,
+            Intent::Tmux(TmuxCommand {
+                session: None,
+                pane: "shell".into(),
+                command: "cargo build".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn whisper_capitalized_sentence() {
+        let m = parse_intent("In Chops Tell Claude please review the code", &test_ctx()).unwrap();
+        assert_eq!(
+            m.intent,
+            Intent::Tmux(TmuxCommand {
+                session: Some("chops".into()),
+                pane: "claude".into(),
+                command: "review the code".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn whisper_exclamation_mark() {
+        let m = parse_intent("Run cargo test!", &empty_ctx()).unwrap();
+        assert_eq!(
+            m.intent,
+            Intent::Tmux(TmuxCommand {
+                session: None,
+                pane: "shell".into(),
+                command: "cargo test".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn whisper_question_phrasing() {
+        // whisper sometimes adds question marks to commands
+        let m = parse_intent("In chops run cargo clippy?", &test_ctx()).unwrap();
+        assert_eq!(
+            m.intent,
+            Intent::Tmux(TmuxCommand {
+                session: Some("chops".into()),
+                pane: "shell".into(),
+                command: "cargo clippy".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn whisper_hey_prefix() {
+        let m = parse_intent("Hey, run git status.", &empty_ctx()).unwrap();
+        assert_eq!(
+            m.intent,
+            Intent::Tmux(TmuxCommand {
+                session: None,
+                pane: "shell".into(),
+                command: "git status".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn whisper_launch_synonym() {
+        let m = parse_intent("In chops launch cargo build --release.", &test_ctx()).unwrap();
+        assert_eq!(
+            m.intent,
+            Intent::Tmux(TmuxCommand {
+                session: Some("chops".into()),
+                pane: "shell".into(),
+                command: "cargo build --release".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn whisper_send_synonym_for_tell() {
+        let m = parse_intent("In chops send claude add unit tests", &test_ctx()).unwrap();
+        assert_eq!(
+            m.intent,
+            Intent::Tmux(TmuxCommand {
+                session: Some("chops".into()),
+                pane: "claude".into(),
+                command: "add unit tests".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn whisper_open_editor_synonym() {
+        let m = parse_intent("Open editor src/main.rs", &empty_ctx()).unwrap();
+        assert!(matches!(m.intent, Intent::Vscode(ref f) if f == "src/main.rs"));
+    }
+
+    #[test]
+    fn whisper_complex_command_with_pipes() {
+        let m = parse_intent("run cat file.txt | grep error", &empty_ctx()).unwrap();
+        assert_eq!(
+            m.intent,
+            Intent::Tmux(TmuxCommand {
+                session: None,
+                pane: "shell".into(),
+                command: "cat file.txt | grep error".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn whisper_complex_command_with_flags() {
+        let m = parse_intent("in chops run docker compose up -d --build", &test_ctx()).unwrap();
+        assert_eq!(
+            m.intent,
+            Intent::Tmux(TmuxCommand {
+                session: Some("chops".into()),
+                pane: "shell".into(),
+                command: "docker compose up -d --build".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn whisper_all_noise_combined() {
+        // Filler + punctuation + synonym + project typo
+        let m = parse_intent("Uh, okay, please in chop execute cargo test.", &test_ctx()).unwrap();
+        assert_eq!(
+            m.intent,
+            Intent::Tmux(TmuxCommand {
+                session: Some("chops".into()),
+                pane: "shell".into(),
+                command: "cargo test".into(),
+            })
+        );
+        assert!(m.confidence < 1.0); // fuzzy project match
+    }
+
+    #[test]
+    fn whisper_semicolons_and_colons() {
+        let m = parse_intent("Well; in chops: run make build.", &test_ctx()).unwrap();
+        assert_eq!(
+            m.intent,
+            Intent::Tmux(TmuxCommand {
+                session: Some("chops".into()),
+                pane: "shell".into(),
+                command: "make build".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn whisper_bare_run_only_rejected() {
+        // "run" alone with no command should not match
+        assert!(parse_intent("run", &empty_ctx()).is_none());
+    }
+
+    #[test]
+    fn whisper_just_filler_rejected() {
+        assert!(parse_intent("um, uh, okay.", &empty_ctx()).is_none());
+    }
+
+    #[test]
+    fn whisper_gibberish_rejected() {
+        assert!(
+            parse_intent("the quick brown fox jumps over the lazy dog", &empty_ctx()).is_none()
+        );
+    }
+
+    // --- Fuzzy matching edge cases ---
+
+    #[test]
+    fn fuzzy_single_char_deletion() {
+        // "chop" → "chops" (missing trailing 's')
+        let m = parse_intent("in chop run ls", &test_ctx()).unwrap();
+        assert_eq!(
+            m.intent,
+            Intent::Tmux(TmuxCommand {
+                session: Some("chops".into()),
+                pane: "shell".into(),
+                command: "ls".into(),
+            })
+        );
+        assert_eq!(m.confidence, 0.8);
+    }
+
+    #[test]
+    fn fuzzy_single_char_substitution() {
+        // "shops" → "chops" (substitution of first char)
+        let m = parse_intent("in shops run ls", &test_ctx()).unwrap();
+        assert_eq!(
+            m.intent,
+            Intent::Tmux(TmuxCommand {
+                session: Some("chops".into()),
+                pane: "shell".into(),
+                command: "ls".into(),
+            })
+        );
+        assert_eq!(m.confidence, 0.8);
+    }
+
+    #[test]
+    fn fuzzy_too_distant_no_match() {
+        // "xyz" is too far from any known project — should pass through at 0.6
+        let m = parse_intent("in xyz run ls", &test_ctx()).unwrap();
+        assert_eq!(
+            m.intent,
+            Intent::Tmux(TmuxCommand {
+                session: Some("xyz".into()),
+                pane: "shell".into(),
+                command: "ls".into(),
+            })
+        );
+        assert_eq!(m.confidence, 0.6);
+    }
+
+    #[test]
+    fn fuzzy_matches_longer_project_name() {
+        // "manta" → "manta-deploy"
+        let m = parse_intent("in manta-deplo run ls", &test_ctx()).unwrap();
+        assert_eq!(
+            m.intent,
+            Intent::Tmux(TmuxCommand {
+                session: Some("manta-deploy".into()),
+                pane: "shell".into(),
+                command: "ls".into(),
+            })
+        );
+        assert_eq!(m.confidence, 0.8);
+    }
+
+    #[test]
+    fn fuzzy_exact_match_preferred_over_fuzzy() {
+        // When exact match exists, should get 1.0 confidence
+        let m = parse_intent("in dotfiles run ls", &test_ctx()).unwrap();
+        assert_eq!(
+            m.intent,
+            Intent::Tmux(TmuxCommand {
+                session: Some("dotfiles".into()),
+                pane: "shell".into(),
+                command: "ls".into(),
+            })
+        );
+        assert_eq!(m.confidence, 1.0);
+    }
+
+    #[test]
+    fn fuzzy_does_not_match_completely_different() {
+        // "banana" should not match any project
+        let m = parse_intent("in banana run ls", &test_ctx()).unwrap();
+        assert_eq!(
+            m.intent,
+            Intent::Tmux(TmuxCommand {
+                session: Some("banana".into()),
+                pane: "shell".into(),
+                command: "ls".into(),
+            })
+        );
+        assert_eq!(m.confidence, 0.6); // unknown project passthrough
     }
 }
