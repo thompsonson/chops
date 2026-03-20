@@ -3,5 +3,6 @@ members = [
     "crates/stt-publisher",
     "crates/agent-core",
     "crates/plugin-runner",
+    "crates/web-ui",
 ]
 resolver = "2"
