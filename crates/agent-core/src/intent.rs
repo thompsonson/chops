@@ -251,6 +251,37 @@ pub fn parse_intent(text: &str, ctx: &ParseContext) -> Option<IntentMatch> {
     None
 }
 
+/// Terminator words that signal the end of a multi-segment utterance.
+/// Inspired by radio protocol ("over", "over and out").
+const TERMINATOR_WORDS: &[&str] = &["over", "out", "done", "end", "finish", "send it"];
+
+/// Check if text ends with a terminator keyword. Returns the text with the
+/// terminator stripped if found, or None if no terminator is present.
+pub fn strip_terminator(text: &str) -> Option<String> {
+    let lower = text.to_lowercase();
+    let trimmed = lower.trim_end_matches(|c: char| c.is_ascii_punctuation() || c.is_whitespace());
+
+    for &term in TERMINATOR_WORDS {
+        if let Some(prefix) = trimmed.strip_suffix(term) {
+            let result = prefix
+                .trim_end_matches(|c: char| c.is_ascii_punctuation() || c.is_whitespace())
+                .to_string();
+            if result.is_empty() {
+                return Some(String::new());
+            }
+            return Some(result);
+        }
+    }
+    None
+}
+
+/// Check if text contains a terminator keyword anywhere (for raw transcription checks).
+pub fn has_terminator(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    let trimmed = lower.trim_end_matches(|c: char| c.is_ascii_punctuation() || c.is_whitespace());
+    TERMINATOR_WORDS.iter().any(|&term| trimmed.ends_with(term))
+}
+
 /// Discover projects by scanning a directory for subdirectories containing `.git`.
 pub fn discover_projects(base: &std::path::Path) -> Vec<String> {
     let mut projects = Vec::new();
@@ -792,6 +823,60 @@ mod tests {
             })
         );
         assert_eq!(m.confidence, 1.0);
+    }
+
+    // --- Terminator detection ---
+
+    #[test]
+    fn strip_terminator_over() {
+        assert_eq!(
+            strip_terminator("fix the tests over"),
+            Some("fix the tests".into())
+        );
+    }
+
+    #[test]
+    fn strip_terminator_over_with_period() {
+        assert_eq!(
+            strip_terminator("fix the tests. Over."),
+            Some("fix the tests".into())
+        );
+    }
+
+    #[test]
+    fn strip_terminator_done() {
+        assert_eq!(
+            strip_terminator("add error handling done"),
+            Some("add error handling".into())
+        );
+    }
+
+    #[test]
+    fn strip_terminator_no_terminator() {
+        assert_eq!(strip_terminator("fix the tests"), None);
+    }
+
+    #[test]
+    fn strip_terminator_only_terminator() {
+        assert_eq!(strip_terminator("over"), Some(String::new()));
+        assert_eq!(strip_terminator("Over."), Some(String::new()));
+    }
+
+    #[test]
+    fn has_terminator_works() {
+        assert!(has_terminator("over"));
+        assert!(has_terminator("Over."));
+        assert!(has_terminator("some text done."));
+        assert!(!has_terminator("fix the tests"));
+        assert!(!has_terminator("run cargo test"));
+    }
+
+    #[test]
+    fn strip_terminator_send_it() {
+        assert_eq!(
+            strip_terminator("review the code send it"),
+            Some("review the code".into())
+        );
     }
 
     #[test]

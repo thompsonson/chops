@@ -64,16 +64,35 @@ in <project> run <command>
 
 ### Send a message to Claude in a project
 
-Type a message into the Claude Code pane of a project's tmux session.
+Type a message into the Claude Code pane of a project's tmux session. Supports multi-sentence messages using a terminator keyword.
 
 ```
-in <project> tell claude <message>
+in <project> tell claude <message>... over
 ```
 
 **Examples:**
-- "in chops tell claude fix the failing tests"
-- "in chops ask claude add error handling to the parser"
-- "in manta-deploy send claude review the deployment config"
+
+Short (single segment):
+- "in chops tell claude fix the failing tests. Over."
+- "in chops ask claude add error handling. Done."
+
+Long (multi-segment — speak naturally, say "over" when finished):
+- *"In chops tell claude review the parser."*
+- *"Fix the edge cases around fuzzy matching."*
+- *"And add tests for preprocessing. Over."*
+
+All three segments are combined into one message: *"review the parser fix the edge cases around fuzzy matching and add tests for preprocessing"*
+
+**Terminator keywords:** `over`, `out`, `done`, `end`, `finish`, `send it`
+
+**How accumulation works:**
+1. "tell claude" starts accumulation — the message is buffered, not sent
+2. Subsequent segments without a command prefix are appended
+3. When a terminator keyword is heard, the combined message is sent
+4. Safety timeout: if you forget to say "over", the message auto-sends after 30 seconds
+5. If a new command is detected while accumulating (e.g. "in chops run ..."), the accumulated message is flushed first, then the new command executes
+
+**Note:** Only Claude messages accumulate. Shell commands (`run`), VSCode, and termux commands execute immediately — no terminator needed.
 
 **What happens:** Sends `<message>` via `tmux send-keys` to the claude pane (left, pane 1) of the `<project>` tmux session. Requires a 2-pane layout created by `dev claude <project>`.
 
@@ -179,12 +198,14 @@ Responses come back on `agent/responses`:
 
 ## Command summary
 
-| Pattern | Target | Pane |
-|---------|--------|------|
-| `in <project> run <command>` | project's tmux session | shell |
-| `in <project> tell claude <message>` | project's tmux session | claude |
-| `run <command>` | active tmux session | shell |
-| `open vscode <file>` | VSCode | — |
-| `termux <command>` | bash shell | — |
+| Pattern | Target | Pane | Accumulates? |
+|---------|--------|------|-------------|
+| `in <project> run <command>` | project's tmux session | shell | No — immediate |
+| `in <project> tell claude <msg>... over` | project's tmux session | claude | Yes — until terminator |
+| `run <command>` | active tmux session | shell | No — immediate |
+| `open vscode <file>` | VSCode | — | No — immediate |
+| `termux <command>` | bash shell | — | No — immediate |
 
 All patterns support filler words, punctuation, synonyms, and fuzzy project names.
+
+**Terminators:** `over`, `out`, `done`, `end`, `finish`, `send it`
