@@ -25,7 +25,7 @@
     display: flex;
     flex-direction: column;
     padding: 1rem;
-    max-width: 1200px;
+    max-width: 1400px;
     margin: 0 auto;
   }
   header {
@@ -104,41 +104,66 @@
     50% { box-shadow: 0 0 0 8px rgba(233,69,96,0); }
   }
 
-  /* Main content area */
-  .content {
-    flex: 1;
+  /* Session selector */
+  .session-bar {
     display: flex;
-    gap: 0.75rem;
-    min-height: 0;
+    gap: 0.5rem;
+    align-items: center;
+    margin-bottom: 0.5rem;
   }
-  .panel {
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-  }
-  .panel-left {
+  select {
     flex: 1;
-    min-width: 0;
+    padding: 0.4rem 0.6rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 0.8rem;
+    outline: none;
+    cursor: pointer;
   }
-  .panel-right {
-    flex: 1.5;
-    min-width: 0;
+  select:focus { border-color: var(--accent); }
+  select option { background: var(--surface); color: var(--text); }
+  select optgroup { color: var(--muted); font-style: normal; }
+
+  /* Terminal (top, main content) */
+  .terminal-frame {
+    flex: 1;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    min-height: 200px;
   }
-  .panel-label {
-    font-size: 0.7rem;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-bottom: 0.35rem;
+  .terminal-frame iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+    background: var(--bg);
   }
 
+  /* Debug log (collapsible) */
+  details.debug-panel {
+    margin-top: 0.5rem;
+  }
+  details.debug-panel summary {
+    font-size: 0.7rem;
+    color: var(--muted);
+    cursor: pointer;
+    user-select: none;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.25rem 0;
+  }
+  details.debug-panel summary:hover { color: var(--text); }
   .log {
-    flex: 1;
     overflow-y: auto;
+    max-height: 200px;
     border: 1px solid var(--border);
     border-radius: 6px;
     background: var(--surface);
     padding: 0.5rem;
+    margin-top: 0.35rem;
   }
   .log-entry {
     padding: 0.3rem 0.4rem;
@@ -153,34 +178,13 @@
   .log-entry.error .badge { color: var(--error); }
   .log-entry.sent { opacity: 0.7; }
   .log-entry.sent .badge { color: var(--muted); }
-  .empty { color: var(--muted); text-align: center; padding: 2rem; font-size: 0.85rem; }
-
-  .terminal-frame {
-    flex: 1;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    overflow: hidden;
-  }
-  .terminal-frame iframe {
-    width: 100%;
-    height: 100%;
-    border: none;
-    background: var(--bg);
-  }
+  .empty { color: var(--muted); text-align: center; padding: 1rem; font-size: 0.8rem; }
 
   .help {
     margin-top: 0.5rem;
     font-size: 0.65rem;
     color: var(--muted);
     line-height: 1.6;
-  }
-
-  /* Mobile: stack vertically */
-  @media (max-width: 768px) {
-    .content { flex-direction: column; }
-    .panel-left, .panel-right { flex: none; }
-    .panel-left { max-height: 40vh; }
-    .panel-right { min-height: 300px; }
   }
 </style>
 </head>
@@ -199,20 +203,22 @@
     <button id="send" disabled>Send</button>
   </div>
 
-  <div class="content">
-    <div class="panel panel-left">
-      <div class="panel-label">Messages</div>
-      <div class="log" id="log">
-        <div class="empty">No messages yet.</div>
-      </div>
-    </div>
-    <div class="panel panel-right">
-      <div class="panel-label">Terminal</div>
-      <div class="terminal-frame" id="terminal-frame">
-        <iframe id="terminal-iframe"></iframe>
-      </div>
-    </div>
+  <div class="session-bar">
+    <select id="session-select">
+      <option value="">Loading sessions...</option>
+    </select>
   </div>
+
+  <div class="terminal-frame" id="terminal-frame">
+    <iframe id="terminal-iframe"></iframe>
+  </div>
+
+  <details class="debug-panel">
+    <summary>Messages</summary>
+    <div class="log" id="log">
+      <div class="empty">No messages yet.</div>
+    </div>
+  </details>
 
   <div class="help">
     <strong>Commands:</strong>
@@ -221,7 +227,7 @@
     run &lt;command&gt; &nbsp;|&nbsp;
     open vscode &lt;file&gt;
     &nbsp;&nbsp;|&nbsp;&nbsp;
-    <strong>Mic:</strong> click to speak, auto-sends on pause
+    <strong>Mic:</strong> click to speak, say "over" when done
   </div>
 
 <script>
@@ -459,10 +465,87 @@ cmdEl.addEventListener('keydown', (e) => {
 });
 micBtn.addEventListener('click', toggleRecording);
 
+// --- Session selector ---
+
+const sessionSelect = document.getElementById('session-select');
+let currentSession = '';
+
+async function loadSessions() {
+  try {
+    const resp = await fetch('/api/sessions');
+    const data = await resp.json();
+    sessionSelect.innerHTML = '';
+
+    // Active sessions
+    if (data.sessions && data.sessions.length > 0) {
+      const group = document.createElement('optgroup');
+      group.label = 'Active Sessions';
+      data.sessions.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.name;
+        const status = s.attached ? ' (attached)' : '';
+        const layout = s.layout === 'claude' ? ' [claude+shell]' : '';
+        opt.textContent = `${s.name}${layout}${status}`;
+        group.appendChild(opt);
+      });
+      sessionSelect.appendChild(group);
+    }
+
+    // Available projects
+    if (data.projects && data.projects.length > 0) {
+      const group = document.createElement('optgroup');
+      group.label = 'Available Projects';
+      data.projects.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = `project:${p.name}`;
+        opt.textContent = `${p.name} (not started)`;
+        group.appendChild(opt);
+      });
+      sessionSelect.appendChild(group);
+    }
+
+    // Select first active session by default
+    if (data.sessions && data.sessions.length > 0) {
+      sessionSelect.value = data.sessions[0].name;
+      switchSession(data.sessions[0].name);
+    }
+  } catch (e) {
+    sessionSelect.innerHTML = '<option value="">Failed to load sessions</option>';
+  }
+}
+
+function switchSession(name) {
+  currentSession = name;
+  const host = window.location.hostname || 'localhost';
+  const pageProto = window.location.protocol === 'https:' ? 'https' : 'http';
+  // Reload iframe to trigger a new ttyd connection (reads updated state file).
+  // Cache-bust with timestamp to force reconnect.
+  terminalIframe.src = `${pageProto}://${host}:${TTYD_PORT}?t=${Date.now()}`;
+}
+
+sessionSelect.addEventListener('change', async () => {
+  const val = sessionSelect.value;
+  if (val.startsWith('project:')) {
+    appendLog(createLogEntry('ok', 'session', `Project "${val.slice(8)}" needs to be started with: dev ${val.slice(8)}`));
+  } else {
+    try {
+      await fetch(`/api/sessions/switch?session=${encodeURIComponent(val)}`, { method: 'POST' });
+      appendLog(createLogEntry('ok', 'session', `Switched terminal to: ${val}`));
+      switchSession(val);
+    } catch (e) {
+      appendLog(createLogEntry('error', 'session', `Failed to switch: ${e}`));
+    }
+  }
+});
+
+// Refresh sessions periodically
+setInterval(loadSessions, 30000);
+
 // --- Init ---
 
 initSpeech();
 connect();
+loadSessions();
 </script>
 </body>
 </html>

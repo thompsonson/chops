@@ -1440,6 +1440,7 @@ dependencies = [
  "axum",
  "axum-server",
  "dirs",
+ "serde",
  "tokio",
  "tower-http",
  "tracing",
