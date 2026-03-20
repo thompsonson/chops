@@ -225,7 +225,8 @@
   </div>
 
 <script>
-const MQTT_WS_PORT = 9884;
+const MQTT_WS_PORT = window.location.protocol === 'https:' ? 9885 : 9884;
+const MQTT_WS_PROTO = window.location.protocol === 'https:' ? 'wss' : 'ws';
 const TTYD_PORT = 7681;
 const TOPIC_TRANSCRIPTIONS = 'voice/transcriptions';
 const TOPIC_RESPONSES = 'agent/responses';
@@ -247,10 +248,11 @@ let firstMessage = true;
 
 function connect() {
   const host = window.location.hostname || 'localhost';
-  const url = `ws://${host}:${MQTT_WS_PORT}`;
+  const url = `${MQTT_WS_PROTO}://${host}:${MQTT_WS_PORT}`;
 
-  // Set ttyd iframe source
-  terminalIframe.src = `http://${host}:${TTYD_PORT}`;
+  // Set ttyd iframe source (match page protocol)
+  const pageProto = window.location.protocol === 'https:' ? 'https' : 'http';
+  terminalIframe.src = `${pageProto}://${host}:${TTYD_PORT}`;
 
   client = mqtt.connect(url, {
     clientId: `chops-web-${Math.random().toString(36).slice(2, 8)}`,
@@ -351,6 +353,7 @@ function escapeHtml(str) {
 
 let recognition = null;
 let isRecording = false;
+let accumulatedSpeech = []; // persists across recognition restarts
 
 function initSpeech() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -365,29 +368,59 @@ function initSpeech() {
   recognition.lang = 'en-US';
 
   recognition.onresult = (e) => {
+    // The results array contains one entry that evolves from interim → final.
+    // We only care about the latest transcript (interim or final).
     const last = e.results[e.results.length - 1];
-    const transcript = last[0].transcript.trim();
-    cmdEl.value = transcript;
+    const text = last[0].transcript.trim();
+    const conf = (last[0].confidence * 100).toFixed(0);
+    const isFinal = last.isFinal;
 
-    if (last.isFinal) {
+    if (isFinal) {
+      appendLog(createLogEntry('ok', 'mic', `"${text}" (${conf}%)`));
+    }
+
+    // Show accumulated (from prior restarts) + current session text.
+    const full = [...accumulatedSpeech, text].filter(Boolean).join(' ');
+    cmdEl.value = full;
+
+    // Auto-send on terminator keyword.
+    const lower = full.toLowerCase().trim();
+    const terminators = ['over', 'done', 'send it', 'finish', 'end'];
+    if (isFinal && terminators.some(t => lower.endsWith(t))) {
+      appendLog(createLogEntry('sent', 'mic', `Sending: "${full}"`));
       sendCommand();
       stopRecording();
     }
   };
 
   recognition.onerror = (e) => {
-    if (e.error !== 'no-speech') {
-      appendLog(createLogEntry('error', 'mic', `Speech error: ${e.error}`));
+    appendLog(createLogEntry('error', 'mic', `Speech error: ${e.error}`));
+    if (e.error !== 'no-speech' && e.error !== 'aborted') {
+      stopRecording();
     }
-    stopRecording();
   };
 
   recognition.onend = () => {
     if (isRecording) {
-      // Restart if still in recording mode (browser may stop after silence)
+      // Save the last final from the session that just ended.
+      if (recognition._lastFinal) {
+        accumulatedSpeech.push(recognition._lastFinal);
+        recognition._lastFinal = null;
+      }
+      // Restart — browser stops recognition after silence, but we want to
+      // keep listening until user clicks mic again or says a terminator.
       try { recognition.start(); } catch {}
     }
   };
+
+  // Capture last final text before onend fires (results array gets cleared).
+  recognition.addEventListener('result', (e) => {
+    for (let i = 0; i < e.results.length; i++) {
+      if (e.results[i].isFinal) {
+        recognition._lastFinal = e.results[i][0].transcript.trim();
+      }
+    }
+  });
 }
 
 function toggleRecording() {
@@ -401,13 +434,16 @@ function toggleRecording() {
 function startRecording() {
   if (!recognition) return;
   isRecording = true;
+  accumulatedSpeech = [];
   micBtn.classList.add('recording');
-  cmdEl.placeholder = 'Listening...';
+  cmdEl.placeholder = 'Listening... say "over" when done';
+  cmdEl.value = '';
   try { recognition.start(); } catch {}
 }
 
 function stopRecording() {
   isRecording = false;
+  accumulatedSpeech = [];
   micBtn.classList.remove('recording');
   cmdEl.placeholder = 'in chops run cargo test';
   if (recognition) {
