@@ -2,14 +2,14 @@
 
 ## What is chops?
 
-chops (chat ops) is a local, offline voice-controlled agent system. You speak into a Bluetooth headset, whisper.cpp transcribes your speech, a Rust agent parses your intent, and the resulting command is routed to the right target — a tmux pane, VSCode, or a shell. Everything runs on your machine. No cloud, no API keys, no latency.
+chops (chat ops) is a local, offline voice-controlled agent system. You speak into a Bluetooth headset or the web dashboard, a Rust agent parses your intent, and the resulting command is routed to the right target — a tmux pane, VSCode, or a shell. Everything runs on your machine. No cloud, no API keys, no latency.
 
 ## Architecture
 
 ```
                         ┌──────────────────────────────────────────────────┐
                         │                  MQTT Broker                     │
-                        │              mosquitto :1884                     │
+                        │           mosquitto :1884 / :9885 (WSS)         │
                         │                                                  │
                         │  voice/          agent/commands/   agent/        │
                         │  transcriptions  tmux|vscode|...   responses     │
@@ -24,20 +24,19 @@ chops (chat ops) is a local, offline voice-controlled agent system. You speak in
               │               │        │           │            │
               │               │        │           ├──► tmux send-keys
   ┌───────────┴──┐            │        │           ├──► code (vscode)
-  │ whisper.cpp  │            │        │           └──► bash (termux)
-  │   stream     │     parse_intent()  │
-  └───────┬──────┘     (pure function) │
+  │ whisper.cpp  │     parse_intent()  │           └──► bash (termux)
+  │   stream     │     + accumulator   │
+  └───────┬──────┘                     │
           │                            │
-  ┌───────┴──────┐                     │
-  │  Bluetooth   │              ┌──────┴──────────────────┐
-  │  microphone  │              │      tmux sessions      │
-  └──────────────┘              │  (created by `dev` cmd) │
-                                │                         │
+  ┌───────┴──────┐              ┌──────┴──────────────────┐
+  │  Bluetooth   │              │      tmux sessions      │
+  │  microphone  │              │  (created by `dev` cmd) │
+  └──────────────┘              │                         │
                                 │  ┌─────────┬─────────┐  │
-                                │  │ claude  │  shell  │  │
-                                │  │ (pane 1)│ (pane 2)│  │
-                                │  └─────────┴─────────┘  │
-                                └─────────────────────────┘
+  ┌──────────────┐              │  │ claude  │  shell  │  │
+  │   Web UI     │              │  │ (pane 1)│ (pane 2)│  │
+  │  (PWA/mic)   │──► MQTT WSS  │  └─────────┴─────────┘  │
+  └──────────────┘              └─────────────────────────┘
 ```
 
 ## Data Flow
@@ -48,26 +47,24 @@ chops (chat ops) is a local, offline voice-controlled agent system. You speak in
  2. Transcribe            ▼
                    ┌──────────────┐
                    │ stt-publisher │──► MQTT: voice/transcriptions
-                   └──────────────┘    {"text": "in chops run cargo test", "is_final": true}
-                                                │
- 3. Parse                                       ▼
-                                        ┌──────────────┐
-                                        │  agent-core  │  parse_intent() → Tmux {
-                                        └──────────────┘    session: "chops",
-                                                │           pane: "shell",
-                                                │           command: "cargo test"
-                                                │         }
- 4. Route                                       ▼
-                                        MQTT: agent/commands/tmux
-                                                │
- 5. Execute                                     ▼
-                                        ┌──────────────┐
-                                        │ plugin-runner │──► tmux send-keys -t chops:1.2 "cargo test" Enter
-                                        └──────────────┘
-                                                │
- 6. Respond                                     ▼
-                                        MQTT: agent/responses
-                                        {"status": "ok", "output": "Sent to chops:1.2: "}
+                   │  or Web UI   │    {"text": "in chops run cargo test", "is_final": true}
+                   └──────────────┘                │
+                                                   ▼
+ 3. Parse                                  ┌──────────────┐
+                                           │  agent-core  │  preprocess → regex → fuzzy match
+                                           └──────────────┘    → Intent::Tmux { session, pane, command }
+                                                   │
+ 4. Route                                          ▼
+                                           MQTT: agent/commands/tmux
+                                                   │
+ 5. Execute                                        ▼
+                                           ┌──────────────┐
+                                           │ plugin-runner │──► tmux send-keys -t chops:1.2 "cargo test" Enter
+                                           └──────────────┘
+                                                   │
+ 6. Respond                                        ▼
+                                           MQTT: agent/responses
+                                           {"status": "ok", "output": "Sent to chops:1.2: "}
 ```
 
 ## Components
@@ -82,14 +79,19 @@ Spawns `whisper.cpp stream`, reads its stdout line by line, buffers partial tran
 
 ### agent-core
 
-Subscribes to `voice/transcriptions`, ignores partials, and runs finalized text through `parse_intent()` — a pure function with no side effects. The parsed intent is routed to the appropriate plugin topic.
+Subscribes to `voice/transcriptions`, ignores partials, and runs finalized text through the intent pipeline:
+
+1. **Preprocessing** (`intent.rs`): strips filler words, punctuation; normalizes synonyms
+2. **Regex matching** (`intent.rs`): flexible pattern matching with capture groups
+3. **Fuzzy project matching** (`intent.rs`): Jaro-Winkler similarity against known projects
+4. **Accumulation** (`main.rs`): "tell claude" messages buffer across segments until terminator keyword
 
 **Voice command patterns:**
 
 | You say | What happens |
 |---------|-------------|
 | "in chops run cargo test" | Sends `cargo test` to the shell pane of the `chops` tmux session |
-| "in chops tell claude fix the tests" | Sends `fix the tests` to the claude pane of the `chops` session |
+| "in chops tell claude fix the tests... over" | Accumulates and sends to the claude pane |
 | "run ls" | Sends `ls` to the active tmux session's shell pane |
 | "open vscode main.rs" | Opens `main.rs` in VSCode |
 | "termux echo hello" | Runs `echo hello` in bash |
@@ -104,28 +106,51 @@ Subscribes to all `agent/commands/*` topics. Each incoming command is executed i
 - 1-pane layout (from `dev <project>`): all commands go to pane 1
 - 10-second timeout on all external commands
 
+### web-ui
+
+HTTPS web dashboard built with axum + rustls. Serves `web/index.html` and exposes API endpoints for session management.
+
+**Features:**
+- Voice input via Web Speech API (mic button)
+- Text input → publishes to `voice/transcriptions` via MQTT.js over WebSocket
+- Session dropdown with start/stop/switch (calls `dev start/stop/list`)
+- Read-only tmux terminal viewer (ttyd embedded via iframe)
+- Collapsible debug message log
+- PWA support (installable on mobile)
+
+**API endpoints:**
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/sessions` | GET | List sessions + projects |
+| `/api/sessions/switch?session=<name>` | POST | Switch ttyd terminal view |
+| `/api/sessions/start?project=<name>` | POST | Start a new tmux session |
+| `/api/sessions/stop?session=<name>` | POST | Stop a tmux session |
+
 ## MQTT Topics
 
 ```
-voice/transcriptions          stt-publisher  ──►  agent-core
-agent/commands/tmux           agent-core     ──►  plugin-runner
-agent/commands/vscode         agent-core     ──►  plugin-runner
-agent/commands/termux         agent-core     ──►  plugin-runner
-agent/responses               plugin-runner  ──►  (any subscriber)
-plugins/status/<name>         plugin-runner  ──►  (heartbeat)
+voice/transcriptions          stt-publisher / web UI  ──►  agent-core
+agent/commands/tmux           agent-core              ──►  plugin-runner
+agent/commands/vscode         agent-core              ──►  plugin-runner
+agent/commands/termux         agent-core              ──►  plugin-runner
+agent/responses               plugin-runner           ──►  web UI / any subscriber
+plugins/status/<name>         plugin-runner           ──►  (heartbeat)
 ```
 
 All messages are JSON. Default MQTT port is **1884** (override with `CHOPS_MQTT_PORT`).
 
 ## Deployment (systemd)
 
-All components run as systemd user services on the host machine. They start on boot, restart on failure, and survive logout.
+All components run as systemd user services. They start on boot, restart on failure, and survive logout (linger enabled).
 
 ```
 ~/.config/systemd/user/
-├── chops-mosquitto.service   ← MQTT broker on port 1884
-├── chops-agent.service       ← agent-core (intent parser + router)
+├── chops-mosquitto.service   ← MQTT broker (TCP :1884 + WS :9884 + WSS :9885)
+├── chops-agent.service       ← agent-core (intent parser + accumulator)
 ├── chops-plugin.service      ← plugin-runner (tmux/vscode/termux executor)
+├── chops-web.service         ← web-ui (HTTPS :8443)
+├── chops-ttyd.service        ← ttyd (read-only tmux viewer :7681)
 └── chops-stt.service         ← stt-publisher (enable when whisper.cpp is ready)
 ```
 
@@ -135,6 +160,8 @@ All components run as systemd user services on the host machine. They start on b
 chops-mosquitto
     ├──► chops-agent    (Requires + After)
     ├──► chops-plugin   (Requires + After)
+    ├──► chops-web      (After)
+    ├──► chops-ttyd     (After)
     └──► chops-stt      (Requires + After)
 ```
 
@@ -142,20 +169,17 @@ chops-mosquitto
 
 ```bash
 # Status of all services
-systemctl --user status chops-mosquitto chops-agent chops-plugin
+systemctl --user status chops-mosquitto chops-agent chops-plugin chops-web chops-ttyd
 
 # Live logs
 journalctl --user -u chops-agent -u chops-plugin -f
 
 # Restart after rebuild
 cargo build --release --workspace
-systemctl --user restart chops-agent chops-plugin
+systemctl --user restart chops-agent chops-plugin chops-web
 
 # Stop everything
-systemctl --user stop chops-agent chops-plugin chops-mosquitto
-
-# Enable STT when whisper.cpp is ready
-systemctl --user enable --now chops-stt
+systemctl --user stop chops-agent chops-plugin chops-web chops-ttyd chops-mosquitto
 ```
 
 **Key environment variables in service files:**
@@ -164,8 +188,26 @@ systemctl --user enable --now chops-stt
 |----------|---------|--------|
 | `CHOPS_MQTT_PORT` | MQTT broker port (default 1884) | all services |
 | `RUST_LOG` | Log level (info, debug, trace) | all services |
-| `TMUX_TMPDIR` | tmux socket directory (`/tmp`) | chops-plugin |
-| `PATH` | includes linuxbrew for tmux binary | chops-plugin |
+| `TMUX_TMPDIR` | tmux socket directory (`/tmp`) | chops-plugin, chops-ttyd |
+| `PATH` | includes linuxbrew for tmux/ttyd binaries | chops-plugin, chops-ttyd |
+| `CHOPS_TLS_CERT` | Tailscale TLS certificate path | chops-web |
+| `CHOPS_TLS_KEY` | Tailscale TLS key path | chops-web |
+| `CHOPS_WEB_DIR` | Static files directory for web UI | chops-web |
+
+## Remote Access (Tailscale)
+
+All services are bound to `0.0.0.0` and accessible over Tailscale. HTTPS uses Tailscale-issued certificates (Let's Encrypt).
+
+| Service | URL |
+|---------|-----|
+| Web UI | `https://pop-mini.monkey-ladon.ts.net:8443` |
+| MQTT (TCP) | `pop-mini:1884` |
+| MQTT (WSS) | `wss://pop-mini.monkey-ladon.ts.net:9885` |
+| Terminal | `https://pop-mini.monkey-ladon.ts.net:7681` |
+
+**CLI helper:** `scripts/chops-send.sh` — send commands from any machine with mosquitto-clients.
+
+**Android:** See `scripts/termux-setup.md` for Termux/Tasker setup.
 
 ## Testing Without Audio
 
@@ -174,11 +216,12 @@ systemctl --user enable --now chops-stt
 mosquitto_pub -p 1884 -t voice/transcriptions \
   -m '{"text": "in chops run echo hello", "is_final": true}'
 
+# Test with noisy whisper-like input
+mosquitto_pub -p 1884 -t voice/transcriptions \
+  -m '{"text": "Uh, please in chop execute cargo test.", "is_final": true}'
+
 # Watch all MQTT traffic
 mosquitto_sub -p 1884 -t '#' -v
-
-# Watch responses only
-mosquitto_sub -p 1884 -t 'agent/responses'
 
 # Run unit tests (no broker needed)
 cargo test --workspace
@@ -192,18 +235,29 @@ cargo test --workspace  # auto-skips if broker unavailable
 ```
 chops/
 ├── crates/
-│   ├── stt-publisher/src/main.rs    # whisper.cpp → MQTT (261 lines)
-│   ├── agent-core/src/main.rs       # intent parsing + routing (329 lines)
-│   └── plugin-runner/src/main.rs    # command execution (209 lines)
+│   ├── stt-publisher/src/main.rs    # whisper.cpp → MQTT
+│   ├── agent-core/src/
+│   │   ├── main.rs                  # MQTT loop, accumulator, routing
+│   │   ├── intent.rs                # preprocessing, regex, fuzzy matching
+│   │   └── lib.rs                   # re-exports for integration tests
+│   ├── plugin-runner/src/main.rs    # command execution (tmux/vscode/termux)
+│   └── web-ui/src/main.rs           # HTTPS server + session API
+├── web/
+│   ├── index.html                   # dashboard (MQTT.js, mic, ttyd, sessions)
+│   ├── manifest.json                # PWA manifest
+│   └── sw.js                        # service worker
+├── scripts/
+│   ├── chops-send.sh                # CLI command helper
+│   ├── ttyd-attach.sh               # ttyd session switching wrapper
+│   └── termux-setup.md              # Android setup guide
 ├── tests/
-│   └── integration.rs               # MQTT integration tests
+│   └── integration.rs               # MQTT pipeline tests
 ├── docs/
-│   └── overview.md                  # this file
+│   ├── overview.md                  # this file
+│   └── commands.md                  # voice command reference
 ├── .github/workflows/test.yml       # CI (fmt, clippy, test)
 ├── CLAUDE.md                        # instructions for Claude Code
 ├── README.md                        # quick start
 ├── Cargo.toml                       # workspace definition
 └── Cargo.lock
 ```
-
-~800 lines of Rust total. No frameworks. No macros. No cloud.
