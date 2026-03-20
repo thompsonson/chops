@@ -125,10 +125,19 @@ async fn handle_tmux(payload: &str) -> Result<String> {
     }
 
     // Count panes in the session to determine layout.
-    let pane_count = run_command("tmux", &["list-panes", "-t", &format!("{}:1", session), "-F", "#{pane_index}"])
-        .await
-        .map(|out| out.lines().count())
-        .unwrap_or(1);
+    let pane_count = run_command(
+        "tmux",
+        &[
+            "list-panes",
+            "-t",
+            &format!("{}:1", session),
+            "-F",
+            "#{pane_index}",
+        ],
+    )
+    .await
+    .map(|out| out.lines().count())
+    .unwrap_or(1);
 
     // Map pane name to tmux target.
     // In a 2-pane (claude) layout: claude=1, shell=2
