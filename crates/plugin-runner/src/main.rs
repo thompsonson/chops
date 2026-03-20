@@ -124,28 +124,25 @@ async fn handle_tmux(payload: &str) -> Result<String> {
         return Err(anyhow::anyhow!("tmux session '{}' not found", session));
     }
 
-    // Map pane name to tmux target.
-    let pane_index = match cmd.pane.as_str() {
-        "claude" => "1",
-        _ => "2", // "shell" or default → right pane
-    };
-
-    // Try session:1.pane_index first; fall back to session:1.1 for single-pane sessions.
-    let target = format!("{}:1.{}", session, pane_index);
-    let fallback_target = format!("{}:1.1", session);
-
-    let target = if run_command("tmux", &["display-message", "-t", &target, "-p", ""])
+    // Count panes in the session to determine layout.
+    let pane_count = run_command("tmux", &["list-panes", "-t", &format!("{}:1", session), "-F", "#{pane_index}"])
         .await
-        .is_ok()
-    {
-        target
+        .map(|out| out.lines().count())
+        .unwrap_or(1);
+
+    // Map pane name to tmux target.
+    // In a 2-pane (claude) layout: claude=1, shell=2
+    // In a 1-pane (default) layout: everything goes to pane 1
+    let pane_index = if pane_count == 1 {
+        "1"
     } else {
-        info!(
-            "Pane {} not found, falling back to {}",
-            target, fallback_target
-        );
-        fallback_target
+        match cmd.pane.as_str() {
+            "claude" => "1",
+            _ => "2",
+        }
     };
+
+    let target = format!("{}:1.{}", session, pane_index);
 
     let output = run_command("tmux", &["send-keys", "-t", &target, &cmd.command, "Enter"]).await?;
 
