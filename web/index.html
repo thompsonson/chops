@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>chops</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#1a1a2e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <script src="https://unpkg.com/mqtt@5/dist/mqtt.min.js"></script>
 <style>
   :root {
@@ -126,6 +130,21 @@
   select:focus { border-color: var(--accent); }
   select option { background: var(--surface); color: var(--text); }
   select optgroup { color: var(--muted); font-style: normal; }
+  .session-btn {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.75rem;
+    border-radius: 6px;
+    background: var(--ok);
+    color: var(--bg);
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .session-btn:hover { opacity: 0.9; }
+  .session-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+  .session-btn-stop { background: var(--error); color: white; }
 
   /* Terminal (top, main content) */
   .terminal-frame {
@@ -207,10 +226,12 @@
     <select id="session-select">
       <option value="">Loading sessions...</option>
     </select>
+    <button class="session-btn" id="btn-start" title="Start session" disabled>Start</button>
+    <button class="session-btn session-btn-stop" id="btn-stop" title="Stop session" disabled>Stop</button>
   </div>
 
   <div class="terminal-frame" id="terminal-frame">
-    <iframe id="terminal-iframe"></iframe>
+    <iframe id="terminal-iframe" sandbox="allow-scripts allow-same-origin"></iframe>
   </div>
 
   <details class="debug-panel">
@@ -468,6 +489,8 @@ micBtn.addEventListener('click', toggleRecording);
 // --- Session selector ---
 
 const sessionSelect = document.getElementById('session-select');
+const btnStart = document.getElementById('btn-start');
+const btnStop = document.getElementById('btn-stop');
 let currentSession = '';
 
 async function loadSessions() {
@@ -506,9 +529,17 @@ async function loadSessions() {
 
     // Select first active session by default
     if (data.sessions && data.sessions.length > 0) {
-      sessionSelect.value = data.sessions[0].name;
-      switchSession(data.sessions[0].name);
+      // Preserve current selection if still valid
+      const prev = currentSession;
+      const stillExists = data.sessions.some(s => s.name === prev);
+      if (stillExists) {
+        sessionSelect.value = prev;
+      } else {
+        sessionSelect.value = data.sessions[0].name;
+        switchSession(data.sessions[0].name);
+      }
     }
+    updateButtons();
   } catch (e) {
     sessionSelect.innerHTML = '<option value="">Failed to load sessions</option>';
   }
@@ -523,11 +554,18 @@ function switchSession(name) {
   terminalIframe.src = `${pageProto}://${host}:${TTYD_PORT}?t=${Date.now()}`;
 }
 
-sessionSelect.addEventListener('change', async () => {
+function updateButtons() {
   const val = sessionSelect.value;
-  if (val.startsWith('project:')) {
-    appendLog(createLogEntry('ok', 'session', `Project "${val.slice(8)}" needs to be started with: dev ${val.slice(8)}`));
-  } else {
+  const isProject = val.startsWith('project:');
+  const isSession = val && !isProject;
+  btnStart.disabled = !isProject;
+  btnStop.disabled = !isSession;
+}
+
+sessionSelect.addEventListener('change', async () => {
+  updateButtons();
+  const val = sessionSelect.value;
+  if (!val.startsWith('project:') && val) {
     try {
       await fetch(`/api/sessions/switch?session=${encodeURIComponent(val)}`, { method: 'POST' });
       appendLog(createLogEntry('ok', 'session', `Switched terminal to: ${val}`));
@@ -538,6 +576,53 @@ sessionSelect.addEventListener('change', async () => {
   }
 });
 
+btnStart.addEventListener('click', async () => {
+  const val = sessionSelect.value;
+  if (!val.startsWith('project:')) return;
+  const project = val.slice(8);
+  btnStart.disabled = true;
+  btnStart.textContent = '...';
+  try {
+    const resp = await fetch(`/api/sessions/start?project=${encodeURIComponent(project)}`, { method: 'POST' });
+    const data = await resp.json();
+    if (data.error) {
+      appendLog(createLogEntry('error', 'session', data.error));
+    } else {
+      appendLog(createLogEntry('ok', 'session', `Started: ${project}`));
+      // Switch to the new session and refresh the list
+      await fetch(`/api/sessions/switch?session=${encodeURIComponent(project)}`, { method: 'POST' });
+      switchSession(project);
+      await loadSessions();
+      sessionSelect.value = project;
+      updateButtons();
+    }
+  } catch (e) {
+    appendLog(createLogEntry('error', 'session', `Failed to start: ${e}`));
+  }
+  btnStart.textContent = 'Start';
+});
+
+btnStop.addEventListener('click', async () => {
+  const session = sessionSelect.value;
+  if (!session || session.startsWith('project:')) return;
+  btnStop.disabled = true;
+  btnStop.textContent = '...';
+  try {
+    const resp = await fetch(`/api/sessions/stop?session=${encodeURIComponent(session)}`, { method: 'POST' });
+    const data = await resp.json();
+    if (data.error) {
+      appendLog(createLogEntry('error', 'session', data.error));
+    } else {
+      appendLog(createLogEntry('ok', 'session', `Stopped: ${session}`));
+      await loadSessions();
+      updateButtons();
+    }
+  } catch (e) {
+    appendLog(createLogEntry('error', 'session', `Failed to stop: ${e}`));
+  }
+  btnStop.textContent = 'Stop';
+});
+
 // Refresh sessions periodically
 setInterval(loadSessions, 30000);
 
@@ -546,6 +631,11 @@ setInterval(loadSessions, 30000);
 initSpeech();
 connect();
 loadSessions();
+
+// PWA service worker
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
 </script>
 </body>
 </html>

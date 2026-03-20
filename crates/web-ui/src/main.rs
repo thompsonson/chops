@@ -14,13 +14,13 @@ fn env_or(key: &str, default: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| default.to_string())
 }
 
-/// Call `dev list` and return its JSON output.
-async fn api_sessions() -> impl IntoResponse {
+/// Run `dev <args>` and return (success, stdout/stderr).
+async fn run_dev(args: &[&str]) -> Result<String, String> {
     let home = dirs::home_dir().unwrap_or_default();
     let dev_bin = home.join(".local/bin/dev");
 
     let result = Command::new(dev_bin)
-        .arg("list")
+        .args(args)
         .env("TMUX_TMPDIR", "/tmp")
         .env("HOME", &home)
         .env(
@@ -31,68 +31,133 @@ async fn api_sessions() -> impl IntoResponse {
             ),
         )
         .output()
-        .await;
+        .await
+        .map_err(|e| e.to_string())?;
 
-    match result {
-        Ok(output) if output.status.success() => {
-            let body = String::from_utf8_lossy(&output.stdout).to_string();
-            (StatusCode::OK, [("content-type", "application/json")], body)
-        }
-        Ok(output) => {
-            let err = String::from_utf8_lossy(&output.stderr).to_string();
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                [("content-type", "application/json")],
-                format!(r#"{{"error":"{}"}}"#, err.trim()),
-            )
-        }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            [("content-type", "application/json")],
-            format!(r#"{{"error":"{}"}}"#, e),
-        ),
+    if result.status.success() {
+        Ok(String::from_utf8_lossy(&result.stdout).to_string())
+    } else {
+        let err = String::from_utf8_lossy(&result.stderr).trim().to_string();
+        Err(err)
+    }
+}
+
+fn json_ok(body: String) -> (StatusCode, [(&'static str, &'static str); 1], String) {
+    (StatusCode::OK, [("content-type", "application/json")], body)
+}
+
+fn json_err(msg: &str) -> (StatusCode, [(&'static str, &'static str); 1], String) {
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        [("content-type", "application/json")],
+        format!(r#"{{"error":"{}"}}"#, msg),
+    )
+}
+
+fn json_bad(msg: &str) -> (StatusCode, [(&'static str, &'static str); 1], String) {
+    (
+        StatusCode::BAD_REQUEST,
+        [("content-type", "application/json")],
+        format!(r#"{{"error":"{}"}}"#, msg),
+    )
+}
+
+type JsonResponse = (StatusCode, [(&'static str, &'static str); 1], String);
+
+fn validate_name(name: &str) -> Result<String, JsonResponse> {
+    let name = name.trim().to_string();
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.')
+    {
+        return Err(json_bad("invalid session name"));
+    }
+    Ok(name)
+}
+
+/// GET /api/sessions — list active sessions and available projects.
+async fn api_sessions() -> impl IntoResponse {
+    match run_dev(&["list"]).await {
+        Ok(body) => json_ok(body),
+        Err(e) => json_err(&e),
     }
 }
 
 #[derive(Deserialize)]
-struct SwitchParams {
+struct SessionParams {
     session: String,
 }
 
-/// Write the session name to the ttyd state file, so the next browser
-/// connection to ttyd attaches to this session.
-async fn api_switch_session(Query(params): Query<SwitchParams>) -> impl IntoResponse {
+#[derive(Deserialize)]
+struct StartParams {
+    project: String,
+    layout: Option<String>,
+}
+
+/// POST /api/sessions/switch?session=<name> — switch ttyd to a different session.
+async fn api_switch_session(Query(params): Query<SessionParams>) -> impl IntoResponse {
+    let session = match validate_name(&params.session) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+
     let home = dirs::home_dir().unwrap_or_default();
     let state_file = home.join(".config/chops/ttyd-session");
-
-    // Sanitize: only allow alphanumeric, dash, underscore, dot
-    let session = params.session.trim().to_string();
-    if session.is_empty()
-        || !session
-            .chars()
-            .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.')
-    {
-        return (
-            StatusCode::BAD_REQUEST,
-            [("content-type", "application/json")],
-            r#"{"error":"invalid session name"}"#.to_string(),
-        );
-    }
 
     match tokio::fs::write(&state_file, &session).await {
         Ok(_) => {
             info!("Switched ttyd session to: {session}");
-            (
-                StatusCode::OK,
-                [("content-type", "application/json")],
-                format!(r#"{{"session":"{}"}}"#, session),
-            )
+            json_ok(format!(r#"{{"session":"{}"}}"#, session))
         }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            [("content-type", "application/json")],
-            format!(r#"{{"error":"{}"}}"#, e),
-        ),
+        Err(e) => json_err(&e.to_string()),
+    }
+}
+
+/// POST /api/sessions/start?project=<name>&layout=<layout> — start a new session.
+async fn api_start_session(Query(params): Query<StartParams>) -> impl IntoResponse {
+    let project = match validate_name(&params.project) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+
+    let mut args = vec!["start", &project];
+    let layout_str;
+    if let Some(ref layout) = params.layout {
+        layout_str = layout.clone();
+        args.push(&layout_str);
+    }
+
+    match run_dev(&args).await {
+        Ok(output) => {
+            info!("Started session: {project}");
+            json_ok(format!(
+                r#"{{"project":"{}","output":"{}"}}"#,
+                project,
+                output.trim()
+            ))
+        }
+        Err(e) => json_err(&e),
+    }
+}
+
+/// POST /api/sessions/stop?session=<name> — stop (kill) a session.
+async fn api_stop_session(Query(params): Query<SessionParams>) -> impl IntoResponse {
+    let session = match validate_name(&params.session) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+
+    match run_dev(&["stop", &session]).await {
+        Ok(output) => {
+            info!("Stopped session: {session}");
+            json_ok(format!(
+                r#"{{"session":"{}","output":"{}"}}"#,
+                session,
+                output.trim()
+            ))
+        }
+        Err(e) => json_err(&e),
     }
 }
 
@@ -119,6 +184,8 @@ async fn main() {
     let app = Router::new()
         .route("/api/sessions", get(api_sessions))
         .route("/api/sessions/switch", post(api_switch_session))
+        .route("/api/sessions/start", post(api_start_session))
+        .route("/api/sessions/stop", post(api_stop_session))
         .fallback_service(ServeDir::new(&web_dir));
 
     let has_tls = PathBuf::from(&cert_path).exists() && PathBuf::from(&key_path).exists();
