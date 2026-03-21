@@ -1,0 +1,64 @@
+name: Android Build
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake libclang-dev
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        run: sdkmanager --install "ndk;27.2.12479018"
+
+      - name: Install npm dependencies
+        run: npm ci
+        working-directory: app
+
+      - name: Initialize Tauri Android
+        run: npx tauri android init
+        working-directory: app
+
+      - name: Build APK
+        run: npx tauri android build
+        working-directory: app
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.2.12479018
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: chops-android
+          path: app/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+
+      - name: Upload to Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: app/src-tauri/gen/android/app/build/outputs/apk/**/*.apk

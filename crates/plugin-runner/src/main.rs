@@ -1,5 +1,7 @@
 use anyhow::Result;
-use chops_common::{self, DEFAULT_MQTT_HOST, MQTT_KEEP_ALIVE_SECS, MQTT_QUEUE_CAPACITY, MQTT_RECONNECT_DELAY_SECS};
+use chops_common::{
+    self, DEFAULT_MQTT_HOST, MQTT_KEEP_ALIVE_SECS, MQTT_QUEUE_CAPACITY, MQTT_RECONNECT_DELAY_SECS,
+};
 use rumqttc::{AsyncClient, Event, Incoming, MqttOptions, QoS};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -26,7 +28,11 @@ struct TmuxCommand {
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    let mut mqttoptions = MqttOptions::new("plugin-runner", DEFAULT_MQTT_HOST, chops_common::mqtt_port());
+    let mut mqttoptions = MqttOptions::new(
+        "plugin-runner",
+        DEFAULT_MQTT_HOST,
+        chops_common::mqtt_port(),
+    );
     mqttoptions.set_keep_alive(Duration::from_secs(MQTT_KEEP_ALIVE_SECS));
     let (client, mut eventloop) = AsyncClient::new(mqttoptions, MQTT_QUEUE_CAPACITY);
 

@@ -1,0 +1,27 @@
+name: Security Audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**/Cargo.lock'
+  schedule:
+    - cron: '0 8 * * 1'  # Monday 08:00 UTC
+
+jobs:
+  audit-workspace:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  audit-tauri:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install cargo-audit
+      - run: cargo audit
+        working-directory: app/src-tauri
