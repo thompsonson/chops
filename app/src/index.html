@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>chops</title>
+<script src="https://unpkg.com/mqtt@5/dist/mqtt.min.js"></script>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --border: #0f3460;
+    --text: #e0e0e0;
+    --muted: #888;
+    --accent: #e94560;
+    --ok: #4ecca3;
+    --error: #e94560;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    padding: 1rem;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 1.25rem; font-weight: 600; }
+  .status-row {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+  }
+  .status-item {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.7rem;
+    color: var(--muted);
+  }
+  .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--error);
+    transition: background 0.3s;
+  }
+  .dot.ok { background: var(--ok); }
+  .input-row {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+  input[type="text"] {
+    flex: 1;
+    padding: 0.6rem 0.8rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 0.9rem;
+    outline: none;
+  }
+  input[type="text"]:focus { border-color: var(--accent); }
+  input[type="text"]::placeholder { color: var(--muted); }
+  button {
+    padding: 0.6rem 1.2rem;
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 0.9rem;
+    font-weight: 500;
+  }
+  button:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* Mic button */
+  .mic-btn {
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .mic-btn svg { fill: var(--muted); width: 18px; height: 18px; }
+  .mic-btn:hover svg { fill: var(--text); }
+  .mic-btn.recording {
+    background: var(--accent);
+    border-color: var(--accent);
+    animation: pulse 1.5s infinite;
+  }
+  .mic-btn.recording svg { fill: white; }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(233,69,96,0.4); }
+    50% { box-shadow: 0 0 0 8px rgba(233,69,96,0); }
+  }
+
+  /* Session selector */
+  .session-bar {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-bottom: 0.5rem;
+  }
+  select {
+    flex: 1;
+    padding: 0.4rem 0.6rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 0.8rem;
+    outline: none;
+    cursor: pointer;
+  }
+  select:focus { border-color: var(--accent); }
+  select option { background: var(--surface); color: var(--text); }
+  select optgroup { color: var(--muted); font-style: normal; }
+  .session-btn {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.75rem;
+    border-radius: 6px;
+    background: var(--ok);
+    color: var(--bg);
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .session-btn:hover { opacity: 0.9; }
+  .session-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+  .session-btn-stop { background: var(--error); color: white; }
+
+  /* Terminal (top, main content) */
+  .terminal-frame {
+    flex: 1;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    min-height: 200px;
+  }
+  .terminal-frame iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+    background: var(--bg);
+  }
+
+  /* Model status banner */
+  .model-banner {
+    padding: 0.5rem 0.8rem;
+    margin-bottom: 0.5rem;
+    background: #2a1a0e;
+    border: 1px solid #6b4c1e;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    color: #f0c040;
+    display: none;
+  }
+  .model-banner.visible { display: block; }
+
+  /* Debug log (collapsible) */
+  details.debug-panel {
+    margin-top: 0.5rem;
+  }
+  details.debug-panel summary {
+    font-size: 0.7rem;
+    color: var(--muted);
+    cursor: pointer;
+    user-select: none;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.25rem 0;
+  }
+  details.debug-panel summary:hover { color: var(--text); }
+  .log {
+    overflow-y: auto;
+    max-height: 200px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    padding: 0.5rem;
+    margin-top: 0.35rem;
+  }
+  .log-entry {
+    padding: 0.3rem 0.4rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.75rem;
+    line-height: 1.4;
+  }
+  .log-entry:last-child { border-bottom: none; }
+  .log-entry .time { color: var(--muted); margin-right: 0.5rem; }
+  .log-entry .topic { color: var(--accent); margin-right: 0.5rem; }
+  .log-entry.ok .badge { color: var(--ok); }
+  .log-entry.error .badge { color: var(--error); }
+  .log-entry.sent { opacity: 0.7; }
+  .log-entry.sent .badge { color: var(--muted); }
+  .empty { color: var(--muted); text-align: center; padding: 1rem; font-size: 0.8rem; }
+
+  .help {
+    margin-top: 0.5rem;
+    font-size: 0.65rem;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>chops</h1>
+    <div class="status-row">
+      <div class="status-item">
+        <div class="dot" id="mqtt-dot"></div>
+        <span id="mqtt-text">mqtt</span>
+      </div>
+      <div class="status-item">
+        <div class="dot" id="whisper-dot"></div>
+        <span id="whisper-text">whisper</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="model-banner" id="model-banner">
+    Whisper model not found. Place <code>ggml-base.en.bin</code> in the app data directory.
+    <span id="model-path"></span>
+  </div>
+
+  <div class="input-row">
+    <input type="text" id="cmd" placeholder="run cargo test" autofocus>
+    <button class="mic-btn" id="mic" title="Voice input (local whisper)">
+      <svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+    </button>
+    <button id="send" disabled>Send</button>
+  </div>
+
+  <div class="session-bar">
+    <select id="session-select">
+      <option value="">Loading sessions...</option>
+    </select>
+    <button class="session-btn" id="btn-start" title="Start session" disabled>Start</button>
+    <button class="session-btn session-btn-stop" id="btn-stop" title="Stop session" disabled>Stop</button>
+  </div>
+
+  <div class="terminal-frame" id="terminal-frame">
+    <iframe id="terminal-iframe" sandbox="allow-scripts allow-same-origin"></iframe>
+  </div>
+
+  <details class="debug-panel">
+    <summary>Messages</summary>
+    <div class="log" id="log">
+      <div class="empty">No messages yet.</div>
+    </div>
+  </details>
+
+  <div class="help">
+    <strong>Commands:</strong>
+    in &lt;project&gt; run &lt;command&gt; &nbsp;|&nbsp;
+    in &lt;project&gt; tell claude &lt;message&gt; ... over &nbsp;|&nbsp;
+    run &lt;command&gt; &nbsp;|&nbsp;
+    open vscode &lt;file&gt;
+    &nbsp;&nbsp;|&nbsp;&nbsp;
+    <strong>Mic:</strong> click to start local whisper STT
+  </div>
+
+<script>
+// --- Tauri interop ---
+const IS_TAURI = window.__TAURI_INTERNALS__ !== undefined;
+let tauriInvoke = null;
+let tauriListen = null;
+
+if (IS_TAURI) {
+  tauriInvoke = window.__TAURI_INTERNALS__.invoke;
+  // Tauri v2 event listening
+  tauriListen = async function(event, handler) {
+    return window.__TAURI_INTERNALS__.invoke('plugin:event|listen', {
+      event: event,
+      target: { kind: 'Any' },
+      handler: window.__TAURI_INTERNALS__.transformCallback(handler),
+    });
+  };
+}
+
+// --- Config ---
+// In Tauri mode, MQTT host points to the server (pop-mini).
+// In browser mode, it uses the page origin.
+const MQTT_HOST = IS_TAURI ? 'pop-mini.monkey-ladon.ts.net' : (window.location.hostname || 'localhost');
+const MQTT_WS_PORT = 9885;
+const MQTT_WS_PROTO = 'wss';
+const TTYD_PORT = 7681;
+const WEB_API_BASE = IS_TAURI ? `https://${MQTT_HOST}:8443` : '';
+const TOPIC_TRANSCRIPTIONS = 'voice/transcriptions';
+const TOPIC_RESPONSES = 'agent/responses';
+const TOPIC_STATUS = 'plugins/status/#';
+const TOPIC_COMMANDS = 'agent/commands/#';
+
+const mqttDot = document.getElementById('mqtt-dot');
+const mqttText = document.getElementById('mqtt-text');
+const whisperDot = document.getElementById('whisper-dot');
+const whisperText = document.getElementById('whisper-text');
+const modelBanner = document.getElementById('model-banner');
+const modelPathEl = document.getElementById('model-path');
+const cmdEl = document.getElementById('cmd');
+const sendBtn = document.getElementById('send');
+const logEl = document.getElementById('log');
+const micBtn = document.getElementById('mic');
+const terminalIframe = document.getElementById('terminal-iframe');
+
+let client = null;
+let firstMessage = true;
+let isRecording = false;
+
+// --- MQTT (WebSocket, for receiving responses/status) ---
+
+function connectMqtt() {
+  const url = `${MQTT_WS_PROTO}://${MQTT_HOST}:${MQTT_WS_PORT}`;
+
+  // Set ttyd iframe
+  terminalIframe.src = `https://${MQTT_HOST}:${TTYD_PORT}`;
+
+  client = mqtt.connect(url, {
+    clientId: `chops-app-${Math.random().toString(36).slice(2, 8)}`,
+    keepalive: 30,
+    reconnectPeriod: 3000,
+  });
+
+  client.on('connect', () => {
+    mqttDot.classList.add('ok');
+    mqttText.textContent = 'mqtt';
+    sendBtn.disabled = false;
+    client.subscribe(TOPIC_RESPONSES);
+    client.subscribe(TOPIC_STATUS);
+    client.subscribe(TOPIC_COMMANDS);
+  });
+
+  client.on('close', () => {
+    mqttDot.classList.remove('ok');
+    mqttText.textContent = 'mqtt (disconnected)';
+    sendBtn.disabled = true;
+  });
+
+  client.on('error', () => {
+    mqttDot.classList.remove('ok');
+    mqttText.textContent = 'mqtt (error)';
+  });
+
+  client.on('message', (topic, payload) => {
+    const text = payload.toString();
+    let entry;
+
+    if (topic === TOPIC_RESPONSES || topic === 'agent/responses') {
+      try {
+        const msg = JSON.parse(text);
+        const isOk = msg.status === 'ok';
+        entry = createLogEntry(
+          isOk ? 'ok' : 'error',
+          msg.topic || topic,
+          isOk ? (msg.output || 'ok') : (msg.error || 'error')
+        );
+      } catch {
+        entry = createLogEntry('ok', topic, text);
+      }
+    } else if (topic.startsWith('plugins/status/')) {
+      entry = createLogEntry('ok', topic, text);
+    } else if (topic.startsWith('agent/commands/')) {
+      entry = createLogEntry('ok', topic, text);
+    }
+
+    if (entry) appendLog(entry);
+  });
+}
+
+// --- Send command ---
+
+function sendCommand() {
+  let text = cmdEl.value.trim();
+  if (!text) return;
+
+  // Auto-prepend session context
+  const session = sessionSelect.value;
+  const lower = text.toLowerCase();
+  if (session && !session.startsWith('project:')
+      && !lower.startsWith('in ')
+      && !lower.includes('vscode') && !lower.includes('editor')
+      && !lower.includes('termux') && !lower.includes('terminal')) {
+    text = `in ${session} ${text}`;
+  }
+
+  if (IS_TAURI) {
+    // Send via Tauri → MQTT (TCP)
+    tauriInvoke('send_transcription', { text: text }).then(() => {
+      appendLog(createLogEntry('sent', 'sent', text));
+    }).catch(e => {
+      appendLog(createLogEntry('error', 'send', e));
+    });
+  } else if (client) {
+    // Send via MQTT.js (WebSocket)
+    const payload = JSON.stringify({
+      text: text,
+      is_final: true,
+      timestamp: new Date().toISOString()
+    });
+    client.publish(TOPIC_TRANSCRIPTIONS, payload);
+    appendLog(createLogEntry('sent', 'sent', text));
+  }
+
+  cmdEl.value = '';
+  cmdEl.focus();
+}
+
+// --- Mic (Tauri: whisper-rs, Browser: Web Speech API) ---
+
+function toggleRecording() {
+  if (isRecording) {
+    stopRecording();
+  } else {
+    startRecording();
+  }
+}
+
+function startRecording() {
+  if (IS_TAURI) {
+    tauriInvoke('start_listening').then(() => {
+      isRecording = true;
+      micBtn.classList.add('recording');
+      cmdEl.placeholder = 'Listening (whisper)...';
+      whisperDot.classList.add('ok');
+      whisperText.textContent = 'whisper (listening)';
+    }).catch(e => {
+      appendLog(createLogEntry('error', 'mic', `Failed to start: ${e}`));
+    });
+  } else {
+    startWebSpeech();
+  }
+}
+
+function stopRecording() {
+  if (IS_TAURI) {
+    tauriInvoke('stop_listening').then(() => {
+      isRecording = false;
+      micBtn.classList.remove('recording');
+      cmdEl.placeholder = 'run cargo test';
+      whisperDot.classList.remove('ok');
+      whisperText.textContent = 'whisper';
+    }).catch(e => {
+      appendLog(createLogEntry('error', 'mic', `Failed to stop: ${e}`));
+    });
+  } else {
+    stopWebSpeech();
+  }
+}
+
+// --- Web Speech API fallback (browser mode) ---
+
+let recognition = null;
+let accumulatedSpeech = [];
+
+function initWebSpeech() {
+  if (IS_TAURI) return; // Use whisper in Tauri
+
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    whisperText.textContent = 'no speech api';
+    return;
+  }
+
+  whisperText.textContent = 'web speech';
+
+  recognition = new SpeechRecognition();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.lang = 'en-US';
+
+  recognition.onresult = (e) => {
+    const last = e.results[e.results.length - 1];
+    const text = last[0].transcript.trim();
+    const isFinal = last.isFinal;
+
+    if (isFinal) {
+      appendLog(createLogEntry('ok', 'mic', `"${text}"`));
+    }
+
+    const full = [...accumulatedSpeech, text].filter(Boolean).join(' ');
+    cmdEl.value = full;
+
+    const lowerFull = full.toLowerCase().trim();
+    const terminators = ['over', 'done', 'send it', 'finish', 'end'];
+    if (isFinal && terminators.some(t => lowerFull.endsWith(t))) {
+      sendCommand();
+      stopRecording();
+    }
+  };
+
+  recognition.onerror = (e) => {
+    appendLog(createLogEntry('error', 'mic', `Speech error: ${e.error}`));
+    if (e.error !== 'no-speech' && e.error !== 'aborted') {
+      stopRecording();
+    }
+  };
+
+  recognition.onend = () => {
+    if (isRecording) {
+      if (recognition._lastFinal) {
+        accumulatedSpeech.push(recognition._lastFinal);
+        recognition._lastFinal = null;
+      }
+      try { recognition.start(); } catch {}
+    }
+  };
+
+  recognition.addEventListener('result', (e) => {
+    for (let i = 0; i < e.results.length; i++) {
+      if (e.results[i].isFinal) {
+        recognition._lastFinal = e.results[i][0].transcript.trim();
+      }
+    }
+  });
+}
+
+function startWebSpeech() {
+  if (!recognition) return;
+  isRecording = true;
+  accumulatedSpeech = [];
+  micBtn.classList.add('recording');
+  cmdEl.placeholder = 'Listening... say "over" when done';
+  cmdEl.value = '';
+  try { recognition.start(); } catch {}
+}
+
+function stopWebSpeech() {
+  isRecording = false;
+  accumulatedSpeech = [];
+  micBtn.classList.remove('recording');
+  cmdEl.placeholder = 'run cargo test';
+  if (recognition) {
+    try { recognition.stop(); } catch {}
+  }
+}
+
+// --- Tauri event listeners ---
+
+async function initTauriEvents() {
+  if (!IS_TAURI || !tauriListen) return;
+
+  await tauriListen('stt-transcription', (event) => {
+    const text = event.payload;
+    appendLog(createLogEntry('ok', 'whisper', `"${text}"`));
+    cmdEl.value = text;
+  });
+
+  await tauriListen('stt-status', (event) => {
+    const status = event.payload;
+    if (status === 'listening') {
+      whisperDot.classList.add('ok');
+      whisperText.textContent = 'whisper (listening)';
+    } else if (status === 'stopped') {
+      whisperDot.classList.remove('ok');
+      whisperText.textContent = 'whisper';
+    } else if (status === 'model_loaded') {
+      appendLog(createLogEntry('ok', 'whisper', 'Model loaded'));
+    }
+  });
+}
+
+// --- Check status ---
+
+async function checkStatus() {
+  if (!IS_TAURI) return;
+  try {
+    const status = await tauriInvoke('get_status');
+    if (!status.model_exists) {
+      modelBanner.classList.add('visible');
+      modelPathEl.textContent = ` Path: ${status.model_path}`;
+    }
+    if (status.mqtt_connected) {
+      mqttDot.classList.add('ok');
+    }
+  } catch {}
+}
+
+// --- Log helpers ---
+
+function createLogEntry(type, topic, content) {
+  const div = document.createElement('div');
+  div.className = `log-entry ${type}`;
+  const now = new Date().toLocaleTimeString('en-GB', { hour12: false });
+  const shortTopic = topic.replace('agent/commands/', '').replace('agent/', '').replace('plugins/status/', 'status/');
+  div.innerHTML = `<span class="time">${now}</span><span class="badge">[${type}]</span> <span class="topic">${shortTopic}</span> ${escapeHtml(content)}`;
+  return div;
+}
+
+function appendLog(entry) {
+  if (firstMessage) {
+    logEl.innerHTML = '';
+    firstMessage = false;
+  }
+  logEl.appendChild(entry);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// --- Session selector ---
+
+const sessionSelect = document.getElementById('session-select');
+const btnStart = document.getElementById('btn-start');
+const btnStop = document.getElementById('btn-stop');
+let currentSession = '';
+
+async function loadSessions() {
+  try {
+    const resp = await fetch(`${WEB_API_BASE}/api/sessions`);
+    const data = await resp.json();
+    sessionSelect.innerHTML = '';
+
+    if (data.sessions && data.sessions.length > 0) {
+      const group = document.createElement('optgroup');
+      group.label = 'Active Sessions';
+      data.sessions.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.name;
+        const status = s.attached ? ' (attached)' : '';
+        const layout = s.layout === 'claude' ? ' [claude+shell]' : '';
+        opt.textContent = `${s.name}${layout}${status}`;
+        group.appendChild(opt);
+      });
+      sessionSelect.appendChild(group);
+    }
+
+    if (data.projects && data.projects.length > 0) {
+      const group = document.createElement('optgroup');
+      group.label = 'Available Projects';
+      data.projects.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = `project:${p.name}`;
+        opt.textContent = `${p.name} (not started)`;
+        group.appendChild(opt);
+      });
+      sessionSelect.appendChild(group);
+    }
+
+    if (data.sessions && data.sessions.length > 0) {
+      const prev = currentSession;
+      const stillExists = data.sessions.some(s => s.name === prev);
+      if (stillExists) {
+        sessionSelect.value = prev;
+      } else {
+        sessionSelect.value = data.sessions[0].name;
+        switchSession(data.sessions[0].name);
+      }
+    }
+    updateButtons();
+  } catch (e) {
+    sessionSelect.innerHTML = '<option value="">Failed to load sessions</option>';
+  }
+}
+
+function switchSession(name) {
+  currentSession = name;
+  terminalIframe.src = `https://${MQTT_HOST}:${TTYD_PORT}?t=${Date.now()}`;
+}
+
+function updateButtons() {
+  const val = sessionSelect.value;
+  const isProject = val.startsWith('project:');
+  const isSession = val && !isProject;
+  btnStart.disabled = !isProject;
+  btnStop.disabled = !isSession;
+}
+
+sessionSelect.addEventListener('change', async () => {
+  updateButtons();
+  const val = sessionSelect.value;
+  if (!val.startsWith('project:') && val) {
+    try {
+      await fetch(`${WEB_API_BASE}/api/sessions/switch?session=${encodeURIComponent(val)}`, { method: 'POST' });
+      appendLog(createLogEntry('ok', 'session', `Switched terminal to: ${val}`));
+      switchSession(val);
+    } catch (e) {
+      appendLog(createLogEntry('error', 'session', `Failed to switch: ${e}`));
+    }
+  }
+});
+
+btnStart.addEventListener('click', async () => {
+  const val = sessionSelect.value;
+  if (!val.startsWith('project:')) return;
+  const project = val.slice(8);
+  btnStart.disabled = true;
+  btnStart.textContent = '...';
+  try {
+    const resp = await fetch(`${WEB_API_BASE}/api/sessions/start?project=${encodeURIComponent(project)}`, { method: 'POST' });
+    const data = await resp.json();
+    if (data.error) {
+      appendLog(createLogEntry('error', 'session', data.error));
+    } else {
+      appendLog(createLogEntry('ok', 'session', `Started: ${project}`));
+      await fetch(`${WEB_API_BASE}/api/sessions/switch?session=${encodeURIComponent(project)}`, { method: 'POST' });
+      switchSession(project);
+      await loadSessions();
+      sessionSelect.value = project;
+      updateButtons();
+    }
+  } catch (e) {
+    appendLog(createLogEntry('error', 'session', `Failed to start: ${e}`));
+  }
+  btnStart.textContent = 'Start';
+});
+
+btnStop.addEventListener('click', async () => {
+  const session = sessionSelect.value;
+  if (!session || session.startsWith('project:')) return;
+  btnStop.disabled = true;
+  btnStop.textContent = '...';
+  try {
+    const resp = await fetch(`${WEB_API_BASE}/api/sessions/stop?session=${encodeURIComponent(session)}`, { method: 'POST' });
+    const data = await resp.json();
+    if (data.error) {
+      appendLog(createLogEntry('error', 'session', data.error));
+    } else {
+      appendLog(createLogEntry('ok', 'session', `Stopped: ${session}`));
+      await loadSessions();
+      updateButtons();
+    }
+  } catch (e) {
+    appendLog(createLogEntry('error', 'session', `Failed to stop: ${e}`));
+  }
+  btnStop.textContent = 'Stop';
+});
+
+setInterval(loadSessions, 30000);
+
+// --- Event listeners ---
+
+sendBtn.addEventListener('click', sendCommand);
+cmdEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') sendCommand();
+});
+micBtn.addEventListener('click', toggleRecording);
+
+// --- Init ---
+
+initWebSpeech();
+connectMqtt();
+loadSessions();
+
+if (IS_TAURI) {
+  checkStatus();
+  initTauriEvents();
+}
+</script>
+</body>
+</html>

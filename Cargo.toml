@@ -5,4 +5,7 @@ members = [
     "crates/plugin-runner",
     "crates/web-ui",
 ]
+exclude = [
+    "app/src-tauri",
+]
 resolver = "2"

@@ -7,11 +7,11 @@ Local, offline, composable voice-controlled agent. Speak into a Bluetooth headse
 ```
 [Bluetooth Audio] → [whisper.cpp stream] → [MQTT: voice/transcriptions]
                                                         ↓
-[Web UI (mic/text)] ──────────────────────►  [Rust Agent Core]
+[Web UI (PWA/mic)] ──────────────────────►  [Rust Agent Core]
                                            (intent parser + router)
-                                         ↙          ↓          ↘
-                                  [tmux]      [VSCode]      [termux]
-                                         ↘          ↓          ↙
+[Tauri App (whisper-rs)] ────────────────►       ↙    ↓    ↘
+                                          [tmux]  [VSCode]  [termux]
+                                               ↘    ↓    ↙
                                           [MQTT: agent/responses]
 ```
 
@@ -28,14 +28,15 @@ Commands are natural language — filler words ("uh", "please"), punctuation, sy
 
 See **[docs/commands.md](docs/commands.md)** for the full command reference.
 
-## Crates
+## Components
 
-| Crate | Purpose |
-|-------|---------|
-| `stt-publisher` | Spawns whisper.cpp, buffers transcriptions, publishes to MQTT |
-| `agent-core` | Subscribes to transcriptions, parses intent, routes to plugins |
-| `plugin-runner` | Executes plugin commands (tmux, VSCode, termux), reports results |
-| `web-ui` | HTTPS web dashboard with mic input, session management, tmux viewer |
+| Component | Purpose |
+|-----------|---------|
+| `crates/stt-publisher` | Spawns whisper.cpp, buffers transcriptions, publishes to MQTT |
+| `crates/agent-core` | Subscribes to transcriptions, parses intent, routes to plugins |
+| `crates/plugin-runner` | Executes plugin commands (tmux, VSCode, termux), reports results |
+| `crates/web-ui` | HTTPS web dashboard with mic input, session management, tmux viewer |
+| `app/` | Tauri v2 desktop/mobile app with offline whisper-rs STT |
 
 ## Quick Start
 
@@ -91,7 +92,7 @@ cargo test --workspace
 
 | Topic | Publisher | Subscriber | Purpose |
 |-------|-----------|------------|---------|
-| `voice/transcriptions` | stt-publisher, web UI | agent-core | Transcription payloads |
+| `voice/transcriptions` | stt-publisher, web UI, Tauri app | agent-core | Transcription payloads |
 | `agent/commands/tmux` | agent-core | plugin-runner | Tmux send-keys commands |
 | `agent/commands/vscode` | agent-core | plugin-runner | VSCode file open |
 | `agent/commands/termux` | agent-core | plugin-runner | Shell commands |
@@ -100,5 +101,6 @@ cargo test --workspace
 
 ## Documentation
 
-- **[docs/commands.md](docs/commands.md)** — Voice command reference (patterns, synonyms, accumulation, examples)
 - **[docs/overview.md](docs/overview.md)** — System overview, architecture diagrams, deployment
+- **[docs/commands.md](docs/commands.md)** — Voice command reference (patterns, synonyms, accumulation, examples)
+- **[docs/tauri-app.md](docs/tauri-app.md)** — Tauri app architecture, design decisions, setup

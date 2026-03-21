@@ -10,16 +10,22 @@ chops (chat ops) is a local, offline voice-controlled agent system. Audio from a
 [Bluetooth Audio] → [whisper.cpp] → [MQTT: voice/transcriptions]
                                               ↓
 [Web UI (mic)] ──────────────────►  [agent-core: intent parser]
-                                      ↙       ↓         ↘
+[Tauri App (whisper-rs)] ─────────►       ↙       ↓         ↘
                               [tmux]    [vscode]    [termux]
 ```
 
-All components communicate over MQTT (Mosquitto) on port 1884 (configurable via `CHOPS_MQTT_PORT`). The web UI connects via WebSocket on port 9884 (plain) or 9885 (TLS).
+All components communicate over MQTT (Mosquitto) on port 1884 (configurable via `CHOPS_MQTT_PORT`). The web UI connects via WebSocket on port 9884 (plain) or 9885 (TLS). The Tauri app connects via TCP for publishing and WSS for receiving.
 
 ## Workspace Layout
 
 ```
 chops/
+├── app/                          # Tauri v2 desktop/mobile app (excluded from cargo workspace)
+│   ├── src/index.html            # Frontend (Tauri + browser dual-mode)
+│   └── src-tauri/src/
+│       ├── main.rs               # Tauri entry point + commands
+│       ├── stt.rs                # cpal mic capture + whisper-rs STT
+│       └── mqtt.rs               # MQTT client wrapper (rumqttc)
 ├── crates/
 │   ├── stt-publisher/        # whisper.cpp stdout → MQTT transcription publisher
 │   ├── agent-core/           # intent parsing + command routing
@@ -41,7 +47,8 @@ chops/
 │   └── integration.rs        # MQTT pipeline integration tests
 ├── docs/
 │   ├── overview.md           # System overview + architecture diagrams
-│   └── commands.md           # Voice command reference
+│   ├── commands.md           # Voice command reference
+│   └── tauri-app.md          # Tauri app architecture + design decisions
 └── .github/workflows/
     └── test.yml              # CI with mosquitto service container
 ```
@@ -49,8 +56,11 @@ chops/
 ## Common Commands
 
 ```bash
-# Build
+# Build server-side crates
 cargo build --workspace
+
+# Build Tauri app
+cd app && npm run tauri build
 
 # Run unit tests (no broker needed)
 cargo test --workspace
@@ -61,6 +71,9 @@ cargo test --workspace
 
 # Run a single crate
 RUST_LOG=info cargo run -p agent-core
+
+# Run Tauri app in dev mode
+cd app && npm run tauri dev
 
 # Rebuild and restart services
 cargo build --release --workspace
@@ -87,7 +100,7 @@ Default port is **1884** (not 1883, to avoid conflict with other MQTT services).
 
 | Topic | Direction | Purpose |
 |-------|-----------|---------|
-| `voice/transcriptions` | stt/web → agent | Transcription payloads |
+| `voice/transcriptions` | stt/web/app → agent | Transcription payloads |
 | `agent/commands/tmux` | agent → plugin | Send keys to tmux session panes |
 | `agent/commands/vscode` | agent → plugin | VSCode file open commands |
 | `agent/commands/termux` | agent → plugin | Shell/termux commands |

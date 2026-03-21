@@ -37,6 +37,12 @@ chops (chat ops) is a local, offline voice-controlled agent system. You speak in
   │   Web UI     │              │  │ (pane 1)│ (pane 2)│  │
   │  (PWA/mic)   │──► MQTT WSS  │  └─────────┴─────────┘  │
   └──────────────┘              └─────────────────────────┘
+
+  ┌──────────────┐
+  │  Tauri App   │──► MQTT TCP (whisper-rs transcriptions)
+  │  (desktop/   │──► MQTT WSS (responses, via WebView)
+  │   mobile)    │
+  └──────────────┘
 ```
 
 ## Data Flow
@@ -68,6 +74,12 @@ chops (chat ops) is a local, offline voice-controlled agent system. You speak in
 ```
 
 ## Components
+
+### Tauri App (desktop/mobile)
+
+Native desktop and mobile app with offline speech-to-text via whisper-rs. Captures mic audio with cpal, transcribes locally, and publishes to MQTT — no cloud speech service needed. Reuses the web UI in a WebView with Tauri command integration.
+
+See **[docs/tauri-app.md](tauri-app.md)** for architecture, design decisions, and setup.
 
 ### stt-publisher
 
@@ -234,7 +246,13 @@ cargo test --workspace  # auto-skips if broker unavailable
 
 ```
 chops/
-├── crates/
+├── app/                             # Tauri v2 desktop/mobile app
+│   ├── src/index.html               # frontend (Tauri + browser dual-mode)
+│   └── src-tauri/src/
+│       ├── main.rs                  # Tauri entry point + commands
+│       ├── stt.rs                   # cpal mic capture + whisper-rs STT
+│       └── mqtt.rs                  # MQTT client wrapper
+├── crates/                          # server-side components
 │   ├── stt-publisher/src/main.rs    # whisper.cpp → MQTT
 │   ├── agent-core/src/
 │   │   ├── main.rs                  # MQTT loop, accumulator, routing
@@ -254,7 +272,8 @@ chops/
 │   └── integration.rs               # MQTT pipeline tests
 ├── docs/
 │   ├── overview.md                  # this file
-│   └── commands.md                  # voice command reference
+│   ├── commands.md                  # voice command reference
+│   └── tauri-app.md                 # Tauri app architecture + design decisions
 ├── .github/workflows/test.yml       # CI (fmt, clippy, test)
 ├── CLAUDE.md                        # instructions for Claude Code
 ├── README.md                        # quick start
