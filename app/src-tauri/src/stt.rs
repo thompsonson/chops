@@ -131,7 +131,7 @@ fn run_stt_loop(
 
     let config = cpal::StreamConfig {
         channels: 1,
-        sample_rate: cpal::SampleRate(SAMPLE_RATE),
+        sample_rate: SAMPLE_RATE,
         buffer_size: cpal::BufferSize::Default,
     };
 
@@ -238,11 +238,11 @@ fn run_stt_loop(
             continue;
         }
 
-        let num_segments = state.full_n_segments().unwrap_or(0);
+        let num_segments = state.full_n_segments();
         let mut text = String::new();
         for i in 0..num_segments {
-            if let Ok(segment) = state.full_get_segment_text(i) {
-                text.push_str(&segment);
+            if let Some(segment) = state.get_segment(i) {
+                text.push_str(&segment.to_str_lossy());
             }
         }
 
