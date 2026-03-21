@@ -37,6 +37,11 @@ jobs:
       - name: Install Android NDK
         run: sdkmanager --install "ndk;27.2.12479018"
 
+      - name: Set NDK environment
+        run: |
+          echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+
       - name: Install npm dependencies
         run: npm ci
         working-directory: app
@@ -45,11 +50,12 @@ jobs:
         run: npx tauri android init
         working-directory: app
 
+      - name: Set minSdk to 26 for AAudio support
+        run: sed -i 's/minSdk = 24/minSdk = 26/' app/src-tauri/gen/android/app/build.gradle.kts
+
       - name: Build APK
         run: npx tauri android build
         working-directory: app
-        env:
-          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.2.12479018
 
       - name: Upload APK
         uses: actions/upload-artifact@v7
