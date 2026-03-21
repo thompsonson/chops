@@ -51,8 +51,13 @@ chops/
 │   ├── commands.md           # Voice command reference
 │   ├── tauri-app.md          # Tauri app architecture + design decisions
 │   └── android-setup.md      # Android SDK/NDK setup guide
-└── .github/workflows/
-    └── test.yml              # CI with mosquitto service container
+├── .github/
+│   ├── dependabot.yml        # Automated dependency updates
+│   └── workflows/
+│       ├── android.yml       # Android APK build on tags + manual dispatch
+│       ├── claude.yml        # Claude code review on @claude mentions
+│       ├── security.yml      # cargo-audit on Cargo.lock changes + weekly
+│       └── test.yml          # CI with mosquitto service container
 ```
 
 ## Common Commands
