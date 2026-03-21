@@ -18,7 +18,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android
+          targets: aarch64-linux-android,x86_64-linux-android
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -51,7 +51,7 @@ jobs:
         working-directory: app
 
       - name: Build APK
-        run: npx tauri android build
+        run: npx tauri android build --target aarch64 --target x86_64
         working-directory: app
 
       - name: Upload APK
