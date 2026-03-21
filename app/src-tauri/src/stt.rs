@@ -242,7 +242,9 @@ fn run_stt_loop(
         let mut text = String::new();
         for i in 0..num_segments {
             if let Some(segment) = state.get_segment(i) {
-                text.push_str(&segment.to_str_lossy());
+                if let Ok(s) = segment.to_str_lossy() {
+                    text.push_str(&s);
+                }
             }
         }
 
