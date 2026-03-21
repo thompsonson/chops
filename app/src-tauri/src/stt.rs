@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
@@ -18,6 +18,14 @@ const SILENCE_THRESHOLD_MS: u64 = 800;
 const SILENCE_RMS: f32 = 0.01;
 /// Minimum audio duration (seconds) to bother transcribing.
 const MIN_AUDIO_SECS: f32 = 0.5;
+/// Pre-allocate audio buffer for this many seconds of audio.
+const AUDIO_PREALLOC_SECS: usize = 5;
+/// Cap the audio buffer at this many seconds to prevent unbounded growth.
+const MAX_BUFFER_SECS: usize = 30;
+/// Polling interval for the STT processing loop.
+const POLL_INTERVAL_MS: u64 = 100;
+/// Fraction of sample rate used for the RMS silence-detection window (1/10 = 0.1s).
+const RMS_WINDOW_DIVISOR: usize = 10;
 
 pub struct SttEngine {
     listening: Arc<AtomicBool>,
@@ -45,7 +53,7 @@ impl SttEngine {
             return Ok(());
         }
 
-        let model_path = model_path()?;
+        let model_path = model_path(&app)?;
         if !model_path.exists() {
             return Err(anyhow::anyhow!(
                 "Whisper model not found at {}. Download ggml-base.en.bin to this location.",
@@ -77,16 +85,17 @@ impl SttEngine {
     }
 }
 
-fn model_path() -> Result<PathBuf> {
-    let data_dir = dirs::data_dir()
-        .context("Could not determine app data directory")?
-        .join("chops");
+fn model_path(app: &AppHandle) -> Result<PathBuf> {
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .context("Could not determine app data directory")?;
     std::fs::create_dir_all(&data_dir)?;
     Ok(data_dir.join(WHISPER_MODEL))
 }
 
-pub fn model_status() -> (bool, String) {
-    match model_path() {
+pub fn model_status(app: &AppHandle) -> (bool, String) {
+    match model_path(app) {
         Ok(p) => {
             let exists = p.exists();
             (exists, p.display().to_string())
@@ -128,7 +137,7 @@ fn run_stt_loop(
 
     // Audio buffer shared between callback and processing
     let audio_buf: Arc<std::sync::Mutex<Vec<f32>>> =
-        Arc::new(std::sync::Mutex::new(Vec::with_capacity(SAMPLE_RATE as usize * 5)));
+        Arc::new(std::sync::Mutex::new(Vec::with_capacity(SAMPLE_RATE as usize * AUDIO_PREALLOC_SECS)));
 
     let buf_clone = audio_buf.clone();
     let stream = device.build_input_stream(
@@ -157,7 +166,7 @@ fn run_stt_loop(
             break;
         }
 
-        std::thread::sleep(Duration::from_millis(100));
+        std::thread::sleep(Duration::from_millis(POLL_INTERVAL_MS));
 
         // Check if we have enough audio and silence to process
         let audio_len = audio_buf.lock().unwrap().len();
@@ -170,7 +179,7 @@ fn run_stt_loop(
         // Check RMS of recent audio to detect silence
         let recent_rms = {
             let buf = audio_buf.lock().unwrap();
-            let recent_start = buf.len().saturating_sub(SAMPLE_RATE as usize / 10);
+            let recent_start = buf.len().saturating_sub(SAMPLE_RATE as usize / RMS_WINDOW_DIVISOR);
             let recent = &buf[recent_start..];
             if recent.is_empty() {
                 0.0
@@ -193,8 +202,7 @@ fn run_stt_loop(
             && audio_secs > MIN_AUDIO_SECS;
 
         if !should_process {
-            // Cap buffer at 30 seconds to prevent unbounded growth
-            let max_samples = SAMPLE_RATE as usize * 30;
+            let max_samples = SAMPLE_RATE as usize * MAX_BUFFER_SECS;
             let mut buf = audio_buf.lock().unwrap();
             if buf.len() > max_samples {
                 let drain_to = buf.len() - max_samples;

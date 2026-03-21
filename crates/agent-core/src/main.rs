@@ -5,24 +5,16 @@ use intent::{
     discover_projects, has_terminator, parse_intent, strip_terminator, Intent, IntentMatch,
     ParseContext, TmuxCommand,
 };
+use chops_common::{self, DEFAULT_MQTT_HOST, MQTT_KEEP_ALIVE_SECS, MQTT_QUEUE_CAPACITY, MQTT_RECONNECT_DELAY_SECS};
 use rumqttc::{AsyncClient, Event, Incoming, MqttOptions, QoS};
 use serde::Deserialize;
 use std::time::{Duration, Instant};
 use tracing::{info, warn};
 
-const MQTT_HOST: &str = "localhost";
-const DEFAULT_MQTT_PORT: u16 = 1884;
 const TRANSCRIPTION_TOPIC: &str = "voice/transcriptions";
 
 /// Maximum time to wait for a terminator before auto-flushing an accumulated message.
 const ACCUMULATOR_TIMEOUT: Duration = Duration::from_secs(30);
-
-fn mqtt_port() -> u16 {
-    std::env::var("CHOPS_MQTT_PORT")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(DEFAULT_MQTT_PORT)
-}
 
 #[derive(Deserialize)]
 struct TranscriptionMessage {
@@ -95,9 +87,9 @@ async fn main() -> Result<()> {
     );
     let ctx = ParseContext { known_projects };
 
-    let mut mqttoptions = MqttOptions::new("agent-core", MQTT_HOST, mqtt_port());
-    mqttoptions.set_keep_alive(Duration::from_secs(30));
-    let (client, mut eventloop) = AsyncClient::new(mqttoptions, 10);
+    let mut mqttoptions = MqttOptions::new("agent-core", DEFAULT_MQTT_HOST, chops_common::mqtt_port());
+    mqttoptions.set_keep_alive(Duration::from_secs(MQTT_KEEP_ALIVE_SECS));
+    let (client, mut eventloop) = AsyncClient::new(mqttoptions, MQTT_QUEUE_CAPACITY);
 
     client
         .subscribe(TRANSCRIPTION_TOPIC, QoS::AtMostOnce)
@@ -127,7 +119,7 @@ async fn main() -> Result<()> {
                     }
                     Err(e) => {
                         warn!("MQTT error: {e}. Reconnecting...");
-                        tokio::time::sleep(Duration::from_secs(2)).await;
+                        tokio::time::sleep(Duration::from_secs(MQTT_RECONNECT_DELAY_SECS)).await;
                     }
                     _ => {}
                 }

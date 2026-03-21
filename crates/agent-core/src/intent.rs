@@ -154,12 +154,16 @@ static RE_TERMUX: LazyLock<Regex> =
 
 // --- Fuzzy project matching ---
 
+const FUZZY_MATCH_THRESHOLD: f64 = 0.75;
+const FUZZY_MATCH_CONFIDENCE: f64 = 0.8;
+const UNKNOWN_PROJECT_CONFIDENCE: f64 = 0.6;
+
 /// Match a candidate project name against known projects using Jaro-Winkler similarity.
 fn match_project(candidate: &str, known: &[String]) -> Option<String> {
     known
         .iter()
         .map(|p| (p.clone(), strsim::jaro_winkler(candidate, p)))
-        .filter(|(_, score)| *score > 0.75)
+        .filter(|(_, score)| *score > FUZZY_MATCH_THRESHOLD)
         .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
         .map(|(name, _)| name)
 }
@@ -172,10 +176,10 @@ fn resolve_project(candidate: &str, ctx: &ParseContext) -> (String, f64) {
     }
     // Fuzzy match → reduced confidence.
     if let Some(matched) = match_project(candidate, &ctx.known_projects) {
-        return (matched, 0.8);
+        return (matched, FUZZY_MATCH_CONFIDENCE);
     }
     // Unknown project — pass through as-is with lower confidence.
-    (candidate.to_string(), 0.6)
+    (candidate.to_string(), UNKNOWN_PROJECT_CONFIDENCE)
 }
 
 // --- Main entry point ---

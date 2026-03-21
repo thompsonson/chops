@@ -23,7 +23,8 @@ chops/
 ├── app/                          # Tauri v2 desktop/mobile app (excluded from cargo workspace)
 │   ├── src/index.html            # Frontend (Tauri + browser dual-mode)
 │   └── src-tauri/src/
-│       ├── main.rs               # Tauri entry point + commands
+│       ├── lib.rs                # shared entry: run() + mobile_entry_point
+│       ├── main.rs               # desktop entry point (calls lib::run)
 │       ├── stt.rs                # cpal mic capture + whisper-rs STT
 │       └── mqtt.rs               # MQTT client wrapper (rumqttc)
 ├── crates/
@@ -48,7 +49,8 @@ chops/
 ├── docs/
 │   ├── overview.md           # System overview + architecture diagrams
 │   ├── commands.md           # Voice command reference
-│   └── tauri-app.md          # Tauri app architecture + design decisions
+│   ├── tauri-app.md          # Tauri app architecture + design decisions
+│   └── android-setup.md      # Android SDK/NDK setup guide
 └── .github/workflows/
     └── test.yml              # CI with mosquitto service container
 ```
@@ -74,6 +76,9 @@ RUST_LOG=info cargo run -p agent-core
 
 # Run Tauri app in dev mode
 cd app && npm run tauri dev
+
+# Build Tauri app for Android (requires SDK setup — see docs/android-setup.md)
+cd app && npx tauri android dev
 
 # Rebuild and restart services
 cargo build --release --workspace

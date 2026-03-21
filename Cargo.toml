@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/chops-common",
     "crates/stt-publisher",
     "crates/agent-core",
     "crates/plugin-runner",

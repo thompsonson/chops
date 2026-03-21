@@ -302,9 +302,12 @@ if (IS_TAURI) {
 }
 
 // --- Config ---
-// In Tauri mode, MQTT host points to the server (pop-mini).
+// In Tauri mode, MQTT host is read from a meta tag or falls back to the default server.
 // In browser mode, it uses the page origin.
-const MQTT_HOST = IS_TAURI ? 'pop-mini.monkey-ladon.ts.net' : (window.location.hostname || 'localhost');
+const CHOPS_DEFAULT_HOST = 'pop-mini.monkey-ladon.ts.net';
+const MQTT_HOST = IS_TAURI
+    ? (document.querySelector('meta[name="chops-host"]')?.content || CHOPS_DEFAULT_HOST)
+    : (window.location.hostname || 'localhost');
 const MQTT_WS_PORT = 9885;
 const MQTT_WS_PROTO = 'wss';
 const TTYD_PORT = 7681;

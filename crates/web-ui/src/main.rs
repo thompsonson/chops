@@ -26,8 +26,9 @@ async fn run_dev(args: &[&str]) -> Result<String, String> {
         .env(
             "PATH",
             format!(
-                "{}/.local/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin",
-                home.display()
+                "{}/.local/bin:{}",
+                home.display(),
+                std::env::var("PATH").unwrap_or_default()
             ),
         )
         .output()

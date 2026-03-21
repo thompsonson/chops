@@ -152,7 +152,8 @@ app/
     ├── icons/
     │   └── icon.png              # app icon (placeholder)
     └── src/
-        ├── main.rs               # entry point, Tauri command handlers
+        ├── lib.rs                # shared entry: run() + mobile_entry_point
+        ├── main.rs               # desktop entry point (calls lib::run)
         ├── stt.rs                # cpal audio capture + whisper-rs transcription
         └── mqtt.rs               # rumqttc MQTT client wrapper
 ```
@@ -226,15 +227,16 @@ npm run tauri build
 
 Produces a `.deb` package and AppImage in `app/src-tauri/target/release/bundle/`.
 
-### Android (future)
+### Android
+
+See [`docs/android-setup.md`](android-setup.md) for full SDK/NDK setup instructions.
 
 ```bash
 cd app
-npm run tauri android init
-npm run tauri android build
+npx tauri android init   # one-time setup
+npx tauri android dev    # dev on connected device
+npx tauri android build  # release APK
 ```
-
-Requires Android SDK + NDK. whisper-rs compiles to ARM via NDK. Audio capture via cpal works on Android with the `oboe` backend.
 
 ## Relationship to Other Components
 

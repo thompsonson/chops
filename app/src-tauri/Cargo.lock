@@ -378,7 +378,6 @@ dependencies = [
  "anyhow",
  "chrono",
  "cpal",
- "dirs",
  "ringbuf",
  "rumqttc",
  "serde",

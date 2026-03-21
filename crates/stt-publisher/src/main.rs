@@ -1,4 +1,5 @@
 use anyhow::Result;
+use chops_common::{self, DEFAULT_MQTT_HOST, MQTT_KEEP_ALIVE_SECS, MQTT_QUEUE_CAPACITY, MQTT_RECONNECT_DELAY_SECS};
 use rumqttc::{AsyncClient, MqttOptions, QoS};
 use serde_json::json;
 use std::process::Stdio;
@@ -8,19 +9,10 @@ use tokio::process::Command;
 use tracing::{info, warn};
 
 const SILENCE_THRESHOLD_MS: u64 = 800;
-const MQTT_HOST: &str = "localhost";
-const DEFAULT_MQTT_PORT: u16 = 1884;
 const TRANSCRIPTION_TOPIC: &str = "voice/transcriptions";
 const WHISPER_MODEL: &str = "models/ggml-base.en.bin";
 const WHISPER_STEP_MS: &str = "1000";
 const WHISPER_LENGTH_MS: &str = "3000";
-
-fn mqtt_port() -> u16 {
-    std::env::var("CHOPS_MQTT_PORT")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(DEFAULT_MQTT_PORT)
-}
 
 struct TranscriptionBuffer {
     pending: String,
@@ -66,9 +58,9 @@ impl TranscriptionBuffer {
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    let mut mqttoptions = MqttOptions::new("stt-publisher", MQTT_HOST, mqtt_port());
-    mqttoptions.set_keep_alive(Duration::from_secs(30));
-    let (client, mut eventloop) = AsyncClient::new(mqttoptions, 10);
+    let mut mqttoptions = MqttOptions::new("stt-publisher", DEFAULT_MQTT_HOST, chops_common::mqtt_port());
+    mqttoptions.set_keep_alive(Duration::from_secs(MQTT_KEEP_ALIVE_SECS));
+    let (client, mut eventloop) = AsyncClient::new(mqttoptions, MQTT_QUEUE_CAPACITY);
 
     // Drive the MQTT event loop in the background.
     tokio::spawn(async move {
@@ -84,7 +76,7 @@ async fn main() -> Result<()> {
         info!("Starting whisper.cpp stream...");
         if let Err(e) = run_whisper(&client).await {
             warn!("whisper.cpp exited with error: {e}. Restarting in 2s...");
-            tokio::time::sleep(Duration::from_secs(2)).await;
+            tokio::time::sleep(Duration::from_secs(MQTT_RECONNECT_DELAY_SECS)).await;
         }
     }
 }

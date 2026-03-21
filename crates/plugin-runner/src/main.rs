@@ -1,4 +1,5 @@
 use anyhow::Result;
+use chops_common::{self, DEFAULT_MQTT_HOST, MQTT_KEEP_ALIVE_SECS, MQTT_QUEUE_CAPACITY, MQTT_RECONNECT_DELAY_SECS};
 use rumqttc::{AsyncClient, Event, Incoming, MqttOptions, QoS};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -7,15 +8,6 @@ use std::time::Duration;
 use tokio::process::Command;
 use tracing::{info, warn};
 
-const MQTT_HOST: &str = "localhost";
-const DEFAULT_MQTT_PORT: u16 = 1884;
-
-fn mqtt_port() -> u16 {
-    std::env::var("CHOPS_MQTT_PORT")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(DEFAULT_MQTT_PORT)
-}
 const VSCODE_TOPIC: &str = "agent/commands/vscode";
 const TERMUX_TOPIC: &str = "agent/commands/termux";
 const TMUX_TOPIC: &str = "agent/commands/tmux";
@@ -34,9 +26,9 @@ struct TmuxCommand {
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    let mut mqttoptions = MqttOptions::new("plugin-runner", MQTT_HOST, mqtt_port());
-    mqttoptions.set_keep_alive(Duration::from_secs(30));
-    let (client, mut eventloop) = AsyncClient::new(mqttoptions, 10);
+    let mut mqttoptions = MqttOptions::new("plugin-runner", DEFAULT_MQTT_HOST, chops_common::mqtt_port());
+    mqttoptions.set_keep_alive(Duration::from_secs(MQTT_KEEP_ALIVE_SECS));
+    let (client, mut eventloop) = AsyncClient::new(mqttoptions, MQTT_QUEUE_CAPACITY);
 
     client.subscribe(VSCODE_TOPIC, QoS::AtMostOnce).await?;
     client.subscribe(TERMUX_TOPIC, QoS::AtMostOnce).await?;
@@ -92,7 +84,7 @@ async fn main() -> Result<()> {
             }
             Err(e) => {
                 warn!("MQTT error: {e}. Reconnecting...");
-                tokio::time::sleep(Duration::from_secs(2)).await;
+                tokio::time::sleep(Duration::from_secs(MQTT_RECONNECT_DELAY_SECS)).await;
             }
             _ => {}
         }
@@ -187,9 +179,11 @@ async fn handle_termux(command: &str) -> Result<String> {
     Ok(output)
 }
 
+const COMMAND_TIMEOUT_SECS: u64 = 10;
+
 /// Run a process, capture stdout/stderr, enforce a timeout.
 async fn run_command(program: &str, args: &[&str]) -> Result<String> {
-    let timeout = Duration::from_secs(10);
+    let timeout = Duration::from_secs(COMMAND_TIMEOUT_SECS);
 
     let child = Command::new(program)
         .args(args)
