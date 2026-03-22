@@ -205,9 +205,44 @@
     color: var(--muted);
     line-height: 1.6;
   }
+
+  /* Toast notifications */
+  .toast-container {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    pointer-events: none;
+    max-width: 360px;
+  }
+  .toast {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.6rem 0.8rem;
+    font-size: 0.8rem;
+    line-height: 1.4;
+    pointer-events: auto;
+    animation: toast-in-out 4s ease forwards;
+    border-left: 3px solid var(--muted);
+  }
+  .toast.toast-info { border-left-color: var(--ok); }
+  .toast.toast-ok { border-left-color: var(--ok); }
+  .toast.toast-warn { border-left-color: #f0c040; }
+  .toast.toast-error { border-left-color: var(--error); }
+  @keyframes toast-in-out {
+    0% { opacity: 0; transform: translateX(20px); }
+    5% { opacity: 1; transform: translateX(0); }
+    90% { opacity: 1; }
+    100% { opacity: 0; }
+  }
 </style>
 </head>
 <body>
+  <div id="toasts" class="toast-container"></div>
   <header>
     <h1>chops</h1>
     <div class="status" id="status"></div>
@@ -315,12 +350,21 @@ function connect() {
     if (topic === TOPIC_RESPONSES || topic === 'agent/responses') {
       try {
         const msg = JSON.parse(text);
-        const isOk = msg.status === 'ok';
-        entry = createLogEntry(
-          isOk ? 'ok' : 'error',
-          msg.topic || topic,
-          isOk ? (msg.output || 'ok') : (msg.error || 'error')
-        );
+        if (msg.type) {
+          // New response protocol
+          if (msg.type === 'toast') {
+            showToast(msg.message, msg.level);
+          }
+          entry = createLogEntry(msg.level === 'error' ? 'error' : 'ok', msg.source || 'agent', msg.message);
+        } else {
+          // Legacy plugin-runner response
+          const isOk = msg.status === 'ok';
+          entry = createLogEntry(
+            isOk ? 'ok' : 'error',
+            msg.topic || topic,
+            isOk ? (msg.output || 'ok') : (msg.error || 'error')
+          );
+        }
       } catch {
         entry = createLogEntry('ok', topic, text);
       }
@@ -386,6 +430,21 @@ function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
+}
+
+// --- Toast notifications ---
+
+const toastsEl = document.getElementById('toasts');
+
+function showToast(message, level) {
+  const el = document.createElement('div');
+  el.className = `toast toast-${level || 'info'}`;
+  el.textContent = message;
+  while (toastsEl.children.length >= 5) {
+    toastsEl.removeChild(toastsEl.firstChild);
+  }
+  toastsEl.appendChild(el);
+  el.addEventListener('animationend', () => el.remove());
 }
 
 // --- Voice input (Web Speech API) ---

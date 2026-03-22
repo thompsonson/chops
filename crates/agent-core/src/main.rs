@@ -10,6 +10,7 @@ use intent::{
 };
 use rumqttc::{AsyncClient, Event, Incoming, MqttOptions, QoS};
 use serde::Deserialize;
+use serde_json::json;
 use std::time::{Duration, Instant};
 use tracing::{info, warn};
 
@@ -198,7 +199,7 @@ async fn handle_transcription(
         Some(m) => handle_new_intent(m, client).await,
         None => {
             warn!("Unhandled intent: {text}");
-            // TODO: slow path — query local LLM (Ollama) here.
+            publish_response(client, "toast", "warn", &format!("Unknown command: {text}")).await;
             None
         }
     }
@@ -253,6 +254,18 @@ async fn dispatch(client: &AsyncClient, topic: &str, payload: &str) {
     if let Err(e) = client.publish(topic, QoS::AtMostOnce, false, payload).await {
         warn!("Failed to dispatch to {topic}: {e}");
     }
+}
+
+async fn publish_response(client: &AsyncClient, type_: &str, level: &str, message: &str) {
+    let response = json!({
+        "source": "agent",
+        "type": type_,
+        "level": level,
+        "message": message,
+    });
+    let _ = client
+        .publish("agent/responses", QoS::AtMostOnce, false, response.to_string())
+        .await;
 }
 
 #[cfg(test)]
