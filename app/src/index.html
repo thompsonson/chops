@@ -1056,9 +1056,20 @@ function applySettings() {
   if (IS_TAURI && tauriInvoke) {
     const modelPath = setModelPath.value.trim();
     if (modelPath) {
-      tauriInvoke('set_model_path', { path: modelPath })
-        .then(() => appendLog(createLogEntry('ok', 'settings', `Model path: ${modelPath}`)))
-        .catch(e => appendLog(createLogEntry('error', 'settings', `Set model path failed: ${e}`)));
+      if (modelPath.startsWith('content://')) {
+        // Android content URI — import (copy) the file to app data dir
+        showToast('Importing model file...', 'info');
+        tauriInvoke('import_model', { uri: modelPath })
+          .then(dest => {
+            showToast(`Model imported to ${dest}`, 'ok');
+            modelBanner.classList.remove('visible');
+          })
+          .catch(e => showToast(`Import failed: ${e}`, 'error'));
+      } else {
+        tauriInvoke('set_model_path', { path: modelPath })
+          .then(() => appendLog(createLogEntry('ok', 'settings', `Model path: ${modelPath}`)))
+          .catch(e => appendLog(createLogEntry('error', 'settings', `Set model path failed: ${e}`)));
+      }
     }
   }
 

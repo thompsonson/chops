@@ -5,6 +5,7 @@ use mqtt::MqttClient;
 use stt::SttEngine;
 use std::sync::Arc;
 use tauri::Manager;
+use tauri_plugin_fs::FsExt;
 use tracing::info;
 
 struct AppState {
@@ -84,6 +85,35 @@ async fn set_model_path(app: tauri::AppHandle, path: String) -> Result<String, S
     Ok(path)
 }
 
+/// Import a model file from a content:// URI or filesystem path into the app data directory.
+#[tauri::command]
+async fn import_model(app: tauri::AppHandle, uri: String) -> Result<String, String> {
+    let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;
+    let dest = data_dir.join("ggml-base.en.bin");
+
+    // Parse URI and read via tauri-plugin-fs (handles content:// on Android)
+    let file_path: tauri_plugin_fs::FilePath = uri
+        .parse()
+        .map_err(|e: std::convert::Infallible| e.to_string())?;
+    let contents = app
+        .fs()
+        .read(file_path)
+        .map_err(|e| format!("Failed to read model: {e}"))?;
+
+    std::fs::write(&dest, &contents).map_err(|e| format!("Failed to write model: {e}"))?;
+
+    // Clear custom path config so it uses the default data dir location
+    stt::set_model_path_config(&app, "").map_err(|e| e.to_string())?;
+
+    info!(
+        "Imported model ({} bytes) to {}",
+        contents.len(),
+        dest.display()
+    );
+    Ok(dest.display().to_string())
+}
+
 #[tauri::command]
 async fn get_model_path(app: tauri::AppHandle) -> Result<String, String> {
     Ok(stt::get_model_path_config(&app))
@@ -98,6 +128,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .setup(move |app| {
             let state = AppState {
                 mqtt: mqtt.clone(),
@@ -126,6 +157,7 @@ pub fn run() {
             get_status,
             set_model_path,
             get_model_path,
+            import_model,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
