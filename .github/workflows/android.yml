@@ -50,18 +50,29 @@ jobs:
         run: npx tauri android init
         working-directory: app
 
+      - name: Decode keystore
+        run: echo "${{ secrets.ANDROID_KEYSTORE }}" | base64 -d > /tmp/chops-release.jks
+
       - name: Build APK
         run: npx tauri android build --target aarch64 --target x86_64
         working-directory: app
+
+      - name: Sign APK
+        run: |
+          unsigned=$(find app/src-tauri/gen/android -name '*-unsigned.apk' | head -1)
+          signed="${unsigned%-unsigned.apk}.apk"
+          apksigner sign --ks /tmp/chops-release.jks --ks-pass pass:${{ secrets.ANDROID_KEYSTORE_PASSWORD }} --out "$signed" "$unsigned"
+          apksigner verify "$signed"
 
       - name: Upload APK
         uses: actions/upload-artifact@v7
         with:
           name: chops-android
-          path: app/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          path: app/src-tauri/gen/android/app/build/outputs/apk/**/*-release.apk
+          if-no-files-found: error
 
       - name: Upload to Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: app/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          files: app/src-tauri/gen/android/app/build/outputs/apk/**/*-release.apk
