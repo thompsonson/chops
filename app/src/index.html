@@ -1006,18 +1006,21 @@ async function openSettings() {
 }
 
 btnBrowseModel.addEventListener('click', async () => {
-  if (!IS_TAURI || !tauriInvoke) return;
+  if (!IS_TAURI || !tauriInvoke) {
+    showToast('File picker requires Tauri app', 'warn');
+    return;
+  }
   try {
+    // Skip extension filters — .bin has no MIME type mapping on Android
     const selected = await tauriInvoke('plugin:dialog|open', {
       title: 'Select Whisper Model',
-      filters: [{ name: 'Whisper Model', extensions: ['bin'] }],
       multiple: false,
     });
     if (selected) {
       setModelPath.value = typeof selected === 'string' ? selected : selected.path;
     }
   } catch (e) {
-    appendLog(createLogEntry('error', 'settings', `Browse failed: ${e}`));
+    showToast(`Browse failed: ${e}`, 'error');
   }
 });
 
