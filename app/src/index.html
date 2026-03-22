@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>chops</title>
 <script src="https://unpkg.com/mqtt@5/dist/mqtt.min.js"></script>
 <style>
@@ -22,9 +22,13 @@
     background: var(--bg);
     color: var(--text);
     height: 100vh;
+    height: 100dvh;
     display: flex;
     flex-direction: column;
-    padding: 1rem;
+    padding: calc(1rem + env(safe-area-inset-top, 0px))
+             calc(1rem + env(safe-area-inset-right, 0px))
+             calc(1rem + env(safe-area-inset-bottom, 0px))
+             calc(1rem + env(safe-area-inset-left, 0px));
     max-width: 1400px;
     margin: 0 auto;
   }
@@ -224,6 +228,88 @@
     color: var(--muted);
     line-height: 1.6;
   }
+
+  /* Settings gear button */
+  .gear-btn {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border-radius: 50%;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  .gear-btn svg { fill: var(--muted); width: 18px; height: 18px; }
+  .gear-btn:hover svg { fill: var(--text); }
+
+  /* Settings modal */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+  }
+  .modal-overlay.visible { display: flex; }
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    width: 100%;
+    max-width: 400px;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+  .modal h2 {
+    font-size: 1rem;
+    margin-bottom: 1rem;
+    font-weight: 600;
+  }
+  .modal label {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--muted);
+    margin-bottom: 0.25rem;
+    margin-top: 0.75rem;
+  }
+  .modal label:first-of-type { margin-top: 0; }
+  .modal input {
+    width: 100%;
+    padding: 0.5rem 0.6rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 0.85rem;
+    outline: none;
+  }
+  .modal input:focus { border-color: var(--accent); }
+  .modal-buttons {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 1.25rem;
+    justify-content: flex-end;
+  }
+  .modal-buttons button {
+    padding: 0.5rem 1rem;
+    font-size: 0.8rem;
+    border-radius: 6px;
+  }
+  .btn-cancel {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
 </style>
 </head>
 <body>
@@ -239,7 +325,30 @@
         <span id="whisper-text">whisper</span>
       </div>
     </div>
+    <button class="gear-btn" id="btn-settings" title="Settings">
+      <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1112 8.4a3.6 3.6 0 010 7.2z"/></svg>
+    </button>
   </header>
+
+  <div class="modal-overlay" id="settings-overlay">
+    <div class="modal">
+      <h2>Settings</h2>
+      <label for="set-host">MQTT Broker Host</label>
+      <input type="text" id="set-host" placeholder="pop-mini.monkey-ladon.ts.net">
+      <label for="set-wss-port">WebSocket Port (WSS)</label>
+      <input type="number" id="set-wss-port" placeholder="9885">
+      <label for="set-tcp-port">TCP Port (Rust backend)</label>
+      <input type="number" id="set-tcp-port" placeholder="1884">
+      <label for="set-api-port">Web API Port</label>
+      <input type="number" id="set-api-port" placeholder="8443">
+      <label for="set-ttyd-port">ttyd Port</label>
+      <input type="number" id="set-ttyd-port" placeholder="7681">
+      <div class="modal-buttons">
+        <button class="btn-cancel" id="settings-cancel">Cancel</button>
+        <button id="settings-save">Save &amp; Reconnect</button>
+      </div>
+    </div>
+  </div>
 
   <div class="model-banner" id="model-banner">
     Whisper model not found. Place <code>ggml-base.en.bin</code> in the app data directory.
@@ -301,17 +410,44 @@ if (IS_TAURI) {
   };
 }
 
+// --- Settings (localStorage) ---
+const SETTINGS_KEY = 'chops-settings';
+const DEFAULT_SETTINGS = {
+  host: 'pop-mini.monkey-ladon.ts.net',
+  wssPort: 9885,
+  tcpPort: 1884,
+  apiPort: 8443,
+  ttydPort: 7681,
+};
+
+let settings = loadSettings();
+
+function loadSettings() {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (raw) return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+  } catch {}
+  return { ...DEFAULT_SETTINGS };
+}
+
+function saveSettings(s) {
+  settings = s;
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+}
+
 // --- Config ---
-// In Tauri mode, MQTT host is read from a meta tag or falls back to the default server.
-// In browser mode, it uses the page origin.
-const CHOPS_DEFAULT_HOST = 'pop-mini.monkey-ladon.ts.net';
-const MQTT_HOST = IS_TAURI
-    ? (document.querySelector('meta[name="chops-host"]')?.content || CHOPS_DEFAULT_HOST)
-    : (window.location.hostname || 'localhost');
-const MQTT_WS_PORT = 9885;
+function getHost() {
+  if (IS_TAURI) return settings.host;
+  return window.location.hostname || 'localhost';
+}
+function getWssPort() { return settings.wssPort; }
+function getTtydPort() { return settings.ttydPort; }
+function getApiBase() {
+  if (IS_TAURI) return `https://${getHost()}:${settings.apiPort}`;
+  return '';
+}
+
 const MQTT_WS_PROTO = 'wss';
-const TTYD_PORT = 7681;
-const WEB_API_BASE = IS_TAURI ? `https://${MQTT_HOST}:8443` : '';
 const TOPIC_TRANSCRIPTIONS = 'voice/transcriptions';
 const TOPIC_RESPONSES = 'agent/responses';
 const TOPIC_STATUS = 'plugins/status/#';
@@ -336,10 +472,11 @@ let isRecording = false;
 // --- MQTT (WebSocket, for receiving responses/status) ---
 
 function connectMqtt() {
-  const url = `${MQTT_WS_PROTO}://${MQTT_HOST}:${MQTT_WS_PORT}`;
+  const host = getHost();
+  const url = `${MQTT_WS_PROTO}://${host}:${getWssPort()}`;
 
   // Set ttyd iframe
-  terminalIframe.src = `https://${MQTT_HOST}:${TTYD_PORT}`;
+  terminalIframe.src = `https://${host}:${getTtydPort()}`;
 
   client = mqtt.connect(url, {
     clientId: `chops-app-${Math.random().toString(36).slice(2, 8)}`,
@@ -636,7 +773,7 @@ let currentSession = '';
 
 async function loadSessions() {
   try {
-    const resp = await fetch(`${WEB_API_BASE}/api/sessions`);
+    const resp = await fetch(`${getApiBase()}/api/sessions`);
     const data = await resp.json();
     sessionSelect.innerHTML = '';
 
@@ -684,7 +821,7 @@ async function loadSessions() {
 
 function switchSession(name) {
   currentSession = name;
-  terminalIframe.src = `https://${MQTT_HOST}:${TTYD_PORT}?t=${Date.now()}`;
+  terminalIframe.src = `https://${getHost()}:${getTtydPort()}?t=${Date.now()}`;
 }
 
 function updateButtons() {
@@ -700,7 +837,7 @@ sessionSelect.addEventListener('change', async () => {
   const val = sessionSelect.value;
   if (!val.startsWith('project:') && val) {
     try {
-      await fetch(`${WEB_API_BASE}/api/sessions/switch?session=${encodeURIComponent(val)}`, { method: 'POST' });
+      await fetch(`${getApiBase()}/api/sessions/switch?session=${encodeURIComponent(val)}`, { method: 'POST' });
       appendLog(createLogEntry('ok', 'session', `Switched terminal to: ${val}`));
       switchSession(val);
     } catch (e) {
@@ -716,13 +853,13 @@ btnStart.addEventListener('click', async () => {
   btnStart.disabled = true;
   btnStart.textContent = '...';
   try {
-    const resp = await fetch(`${WEB_API_BASE}/api/sessions/start?project=${encodeURIComponent(project)}`, { method: 'POST' });
+    const resp = await fetch(`${getApiBase()}/api/sessions/start?project=${encodeURIComponent(project)}`, { method: 'POST' });
     const data = await resp.json();
     if (data.error) {
       appendLog(createLogEntry('error', 'session', data.error));
     } else {
       appendLog(createLogEntry('ok', 'session', `Started: ${project}`));
-      await fetch(`${WEB_API_BASE}/api/sessions/switch?session=${encodeURIComponent(project)}`, { method: 'POST' });
+      await fetch(`${getApiBase()}/api/sessions/switch?session=${encodeURIComponent(project)}`, { method: 'POST' });
       switchSession(project);
       await loadSessions();
       sessionSelect.value = project;
@@ -740,7 +877,7 @@ btnStop.addEventListener('click', async () => {
   btnStop.disabled = true;
   btnStop.textContent = '...';
   try {
-    const resp = await fetch(`${WEB_API_BASE}/api/sessions/stop?session=${encodeURIComponent(session)}`, { method: 'POST' });
+    const resp = await fetch(`${getApiBase()}/api/sessions/stop?session=${encodeURIComponent(session)}`, { method: 'POST' });
     const data = await resp.json();
     if (data.error) {
       appendLog(createLogEntry('error', 'session', data.error));
@@ -756,6 +893,68 @@ btnStop.addEventListener('click', async () => {
 });
 
 setInterval(loadSessions, 30000);
+
+// --- Settings modal ---
+
+const settingsOverlay = document.getElementById('settings-overlay');
+const settingsBtn = document.getElementById('btn-settings');
+const settingsSave = document.getElementById('settings-save');
+const settingsCancel = document.getElementById('settings-cancel');
+const setHost = document.getElementById('set-host');
+const setWssPort = document.getElementById('set-wss-port');
+const setTcpPort = document.getElementById('set-tcp-port');
+const setApiPort = document.getElementById('set-api-port');
+const setTtydPort = document.getElementById('set-ttyd-port');
+
+function openSettings() {
+  setHost.value = settings.host;
+  setWssPort.value = settings.wssPort;
+  setTcpPort.value = settings.tcpPort;
+  setApiPort.value = settings.apiPort;
+  setTtydPort.value = settings.ttydPort;
+  settingsOverlay.classList.add('visible');
+}
+
+function closeSettings() {
+  settingsOverlay.classList.remove('visible');
+}
+
+function applySettings() {
+  const newSettings = {
+    host: setHost.value.trim() || DEFAULT_SETTINGS.host,
+    wssPort: parseInt(setWssPort.value) || DEFAULT_SETTINGS.wssPort,
+    tcpPort: parseInt(setTcpPort.value) || DEFAULT_SETTINGS.tcpPort,
+    apiPort: parseInt(setApiPort.value) || DEFAULT_SETTINGS.apiPort,
+    ttydPort: parseInt(setTtydPort.value) || DEFAULT_SETTINGS.ttydPort,
+  };
+  saveSettings(newSettings);
+  closeSettings();
+
+  // Reconnect frontend MQTT
+  if (client) {
+    client.end(true);
+    client = null;
+  }
+  connectMqtt();
+
+  // Reconnect Tauri backend MQTT
+  if (IS_TAURI && tauriInvoke) {
+    tauriInvoke('connect_mqtt', { host: newSettings.host, port: newSettings.tcpPort })
+      .then(() => appendLog(createLogEntry('ok', 'settings', 'Backend MQTT reconnected')))
+      .catch(e => appendLog(createLogEntry('error', 'settings', `Backend reconnect failed: ${e}`)));
+  }
+
+  // Reload sessions and ttyd
+  loadSessions();
+  appendLog(createLogEntry('ok', 'settings', 'Settings saved, reconnecting...'));
+}
+
+settingsBtn.addEventListener('click', openSettings);
+settingsCancel.addEventListener('click', closeSettings);
+settingsSave.addEventListener('click', applySettings);
+settingsOverlay.addEventListener('click', (e) => {
+  if (e.target === settingsOverlay) closeSettings();
+});
 
 // --- Event listeners ---
 
@@ -774,6 +973,9 @@ loadSessions();
 if (IS_TAURI) {
   checkStatus();
   initTauriEvents();
+  // Connect backend MQTT with saved settings (handles mobile where auto-connect is skipped)
+  tauriInvoke('connect_mqtt', { host: settings.host, port: settings.tcpPort })
+    .catch(() => {}); // silently fail if already connected
 }
 </script>
 </body>
