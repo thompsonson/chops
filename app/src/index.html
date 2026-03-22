@@ -310,6 +310,21 @@
     border: 1px solid var(--border);
     color: var(--text);
   }
+  .browse-row {
+    display: flex;
+    gap: 0.5rem;
+  }
+  .browse-row input { flex: 1; }
+  .btn-browse {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.8rem;
+    border-radius: 6px;
+    white-space: nowrap;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    flex-shrink: 0;
+  }
 </style>
 </head>
 <body>
@@ -343,6 +358,11 @@
       <input type="number" id="set-api-port" placeholder="8443">
       <label for="set-ttyd-port">ttyd Port</label>
       <input type="number" id="set-ttyd-port" placeholder="7681">
+      <label for="set-model-path">Whisper Model Path</label>
+      <div class="browse-row">
+        <input type="text" id="set-model-path" placeholder="ggml-base.en.bin">
+        <button class="btn-browse" id="btn-browse-model">Browse</button>
+      </div>
       <div class="modal-buttons">
         <button class="btn-cancel" id="settings-cancel">Cancel</button>
         <button id="settings-save">Save &amp; Reconnect</button>
@@ -905,15 +925,41 @@ const setWssPort = document.getElementById('set-wss-port');
 const setTcpPort = document.getElementById('set-tcp-port');
 const setApiPort = document.getElementById('set-api-port');
 const setTtydPort = document.getElementById('set-ttyd-port');
+const setModelPath = document.getElementById('set-model-path');
+const btnBrowseModel = document.getElementById('btn-browse-model');
 
-function openSettings() {
+async function openSettings() {
   setHost.value = settings.host;
   setWssPort.value = settings.wssPort;
   setTcpPort.value = settings.tcpPort;
   setApiPort.value = settings.apiPort;
   setTtydPort.value = settings.ttydPort;
+
+  // Load model path from Rust backend
+  if (IS_TAURI && tauriInvoke) {
+    try {
+      setModelPath.value = await tauriInvoke('get_model_path');
+    } catch {}
+  }
+
   settingsOverlay.classList.add('visible');
 }
+
+btnBrowseModel.addEventListener('click', async () => {
+  if (!IS_TAURI || !tauriInvoke) return;
+  try {
+    const selected = await tauriInvoke('plugin:dialog|open', {
+      title: 'Select Whisper Model',
+      filters: [{ name: 'Whisper Model', extensions: ['bin'] }],
+      multiple: false,
+    });
+    if (selected) {
+      setModelPath.value = typeof selected === 'string' ? selected : selected.path;
+    }
+  } catch (e) {
+    appendLog(createLogEntry('error', 'settings', `Browse failed: ${e}`));
+  }
+});
 
 function closeSettings() {
   settingsOverlay.classList.remove('visible');
@@ -942,6 +988,16 @@ function applySettings() {
     tauriInvoke('connect_mqtt', { host: newSettings.host, port: newSettings.tcpPort })
       .then(() => appendLog(createLogEntry('ok', 'settings', 'Backend MQTT reconnected')))
       .catch(e => appendLog(createLogEntry('error', 'settings', `Backend reconnect failed: ${e}`)));
+  }
+
+  // Save model path to Rust backend
+  if (IS_TAURI && tauriInvoke) {
+    const modelPath = setModelPath.value.trim();
+    if (modelPath) {
+      tauriInvoke('set_model_path', { path: modelPath })
+        .then(() => appendLog(createLogEntry('ok', 'settings', `Model path: ${modelPath}`)))
+        .catch(e => appendLog(createLogEntry('error', 'settings', `Set model path failed: ${e}`)));
+    }
   }
 
   // Reload sessions and ttyd

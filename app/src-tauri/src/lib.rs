@@ -78,6 +78,17 @@ async fn get_status(app: tauri::AppHandle, state: tauri::State<'_, AppState>) ->
     }))
 }
 
+#[tauri::command]
+async fn set_model_path(app: tauri::AppHandle, path: String) -> Result<String, String> {
+    stt::set_model_path_config(&app, &path).map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
+#[tauri::command]
+async fn get_model_path(app: tauri::AppHandle) -> Result<String, String> {
+    Ok(stt::get_model_path_config(&app))
+}
+
 pub fn run() {
     tracing_subscriber::fmt::init();
 
@@ -86,6 +97,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(move |app| {
             let state = AppState {
                 mqtt: mqtt.clone(),
@@ -112,6 +124,8 @@ pub fn run() {
             connect_mqtt,
             send_transcription,
             get_status,
+            set_model_path,
+            get_model_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

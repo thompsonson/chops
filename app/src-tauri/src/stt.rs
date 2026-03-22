@@ -12,6 +12,7 @@ use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextPar
 use crate::mqtt::MqttClient;
 
 const WHISPER_MODEL: &str = "ggml-base.en.bin";
+const MODEL_PATH_CONFIG: &str = "model-path.txt";
 const SAMPLE_RATE: u32 = 16000;
 const SILENCE_THRESHOLD_MS: u64 = 800;
 /// RMS threshold below which audio is considered silence.
@@ -91,7 +92,36 @@ fn model_path(app: &AppHandle) -> Result<PathBuf> {
         .app_data_dir()
         .context("Could not determine app data directory")?;
     std::fs::create_dir_all(&data_dir)?;
+
+    // Check for custom model path
+    let config_file = data_dir.join(MODEL_PATH_CONFIG);
+    if let Ok(custom_path) = std::fs::read_to_string(&config_file) {
+        let custom_path = custom_path.trim();
+        if !custom_path.is_empty() {
+            return Ok(PathBuf::from(custom_path));
+        }
+    }
+
     Ok(data_dir.join(WHISPER_MODEL))
+}
+
+pub fn set_model_path_config(app: &AppHandle, path: &str) -> Result<()> {
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .context("Could not determine app data directory")?;
+    std::fs::create_dir_all(&data_dir)?;
+    let config_file = data_dir.join(MODEL_PATH_CONFIG);
+    std::fs::write(&config_file, path)?;
+    info!("Model path set to: {path}");
+    Ok(())
+}
+
+pub fn get_model_path_config(app: &AppHandle) -> String {
+    match model_path(app) {
+        Ok(p) => p.display().to_string(),
+        Err(e) => format!("Error: {e}"),
+    }
 }
 
 pub fn model_status(app: &AppHandle) -> (bool, String) {
