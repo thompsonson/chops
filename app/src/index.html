@@ -781,6 +781,8 @@ async function initTauriEvents() {
       whisperDot.classList.remove('ok');
       whisperText.textContent = 'whisper';
     } else if (status === 'model_loaded') {
+      whisperDot.classList.add('ok');
+      whisperText.textContent = 'whisper (ready)';
       appendLog(createLogEntry('ok', 'whisper', 'Model loaded'));
     }
   });
@@ -792,7 +794,10 @@ async function checkStatus() {
   if (!IS_TAURI) return;
   try {
     const status = await tauriInvoke('get_status');
-    if (!status.model_exists) {
+    if (status.model_exists) {
+      whisperDot.classList.add('ok');
+      whisperText.textContent = 'whisper (ready)';
+    } else {
       modelBanner.classList.add('visible');
       modelPathEl.textContent = ` Path: ${status.model_path}`;
     }
