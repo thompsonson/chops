@@ -546,15 +546,8 @@ function sendCommand() {
     text = `in ${session} ${text}`;
   }
 
-  if (IS_TAURI) {
-    // Send via Tauri → MQTT (TCP)
-    tauriInvoke('send_transcription', { text: text }).then(() => {
-      appendLog(createLogEntry('sent', 'sent', text));
-    }).catch(e => {
-      appendLog(createLogEntry('error', 'send', e));
-    });
-  } else if (client) {
-    // Send via MQTT.js (WebSocket)
+  if (client && client.connected) {
+    // Send via MQTT.js (WebSocket) — works in both browser and Tauri modes
     const payload = JSON.stringify({
       text: text,
       is_final: true,
@@ -562,6 +555,13 @@ function sendCommand() {
     });
     client.publish(TOPIC_TRANSCRIPTIONS, payload);
     appendLog(createLogEntry('sent', 'sent', text));
+  } else if (IS_TAURI) {
+    // Fallback: send via Tauri → MQTT (TCP) if WebSocket isn't available
+    tauriInvoke('send_transcription', { text: text }).then(() => {
+      appendLog(createLogEntry('sent', 'sent', text));
+    }).catch(e => {
+      appendLog(createLogEntry('error', 'send', e));
+    });
   }
 
   cmdEl.value = '';
@@ -975,7 +975,8 @@ if (IS_TAURI) {
   initTauriEvents();
   // Connect backend MQTT with saved settings (handles mobile where auto-connect is skipped)
   tauriInvoke('connect_mqtt', { host: settings.host, port: settings.tcpPort })
-    .catch(() => {}); // silently fail if already connected
+    .then(() => appendLog(createLogEntry('ok', 'mqtt', `Backend connected to ${settings.host}:${settings.tcpPort}`)))
+    .catch(e => appendLog(createLogEntry('error', 'mqtt', `Backend connect failed: ${e}`)));
 }
 </script>
 </body>
