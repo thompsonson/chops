@@ -8,8 +8,8 @@ use tauri::Manager;
 use tauri_plugin_fs::FsExt;
 use tracing::info;
 
-struct AppState {
-    mqtt: Arc<MqttClient>,
+pub struct AppState {
+    pub mqtt: Arc<MqttClient>,
     stt: Arc<SttEngine>,
 }
 
@@ -41,6 +41,7 @@ async fn stop_listening(state: tauri::State<'_, AppState>) -> Result<String, Str
 
 #[tauri::command]
 async fn connect_mqtt(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     host: Option<String>,
     port: Option<u16>,
@@ -49,7 +50,7 @@ async fn connect_mqtt(
     let port = port.unwrap_or_else(mqtt_port);
     state
         .mqtt
-        .connect(&host, port)
+        .connect(&host, port, app)
         .await
         .map_err(|e| e.to_string())?;
     Ok(format!("connected to {host}:{port}"))
@@ -119,6 +120,50 @@ async fn get_model_path(app: tauri::AppHandle) -> Result<String, String> {
     Ok(stt::get_model_path_config(&app))
 }
 
+// --- Session management commands (Phase 4) ---
+
+#[tauri::command]
+async fn get_sessions() -> Result<String, String> {
+    let output = tokio::process::Command::new("dev")
+        .arg("list")
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run dev list: {e}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("dev list failed: {stderr}"));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+#[tauri::command]
+async fn start_session(project: String) -> Result<String, String> {
+    let output = tokio::process::Command::new("dev")
+        .args(["start", &project])
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run dev start: {e}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("dev start failed: {stderr}"));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+#[tauri::command]
+async fn stop_session(session: String) -> Result<String, String> {
+    let output = tokio::process::Command::new("dev")
+        .args(["stop", &session])
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run dev stop: {e}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("dev stop failed: {stderr}"));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
 pub fn run() {
     tracing_subscriber::fmt::init();
 
@@ -129,6 +174,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(move |app| {
             let state = AppState {
                 mqtt: mqtt.clone(),
@@ -139,8 +185,9 @@ pub fn run() {
             if !cfg!(mobile) {
                 let mqtt_for_connect = mqtt.clone();
                 let port = mqtt_port();
+                let app_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    if let Err(e) = mqtt_for_connect.connect(DEFAULT_MQTT_HOST, port).await {
+                    if let Err(e) = mqtt_for_connect.connect(DEFAULT_MQTT_HOST, port, app_handle).await {
                         info!("MQTT auto-connect failed (will retry on demand): {e}");
                     }
                 });
@@ -158,6 +205,9 @@ pub fn run() {
             set_model_path,
             get_model_path,
             import_model,
+            get_sessions,
+            start_session,
+            stop_session,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

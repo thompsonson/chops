@@ -4,7 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>chops</title>
-<script src="https://unpkg.com/mqtt@5/dist/mqtt.min.js"></script>
+<script>
+// Only load mqtt.js in browser mode — Tauri mode uses Rust MQTT
+if (!window.__TAURI_INTERNALS__) {
+  const s = document.createElement('script');
+  s.src = 'https://unpkg.com/mqtt@5/dist/mqtt.min.js';
+  document.head.appendChild(s);
+}
+</script>
 <style>
   :root {
     --bg: #1a1a2e;
@@ -524,9 +531,50 @@ let client = null;
 let firstMessage = true;
 let isRecording = false;
 
-// --- MQTT (WebSocket, for receiving responses/status) ---
+// --- MQTT message handler (shared by browser mqtt.js and Tauri events) ---
+
+function handleMqttMessage(topic, text) {
+  let entry;
+
+  if (topic === TOPIC_RESPONSES || topic === 'agent/responses') {
+    try {
+      const msg = JSON.parse(text);
+      if (msg.type) {
+        // New response protocol — toasts are handled natively in Tauri, show in-app for browser
+        if (msg.type === 'toast' && !IS_TAURI) {
+          showToast(msg.message, msg.level);
+        }
+        entry = createLogEntry(msg.level === 'error' ? 'error' : 'ok', msg.source || 'agent', msg.message);
+      } else {
+        // Legacy plugin-runner response
+        const isOk = msg.status === 'ok';
+        entry = createLogEntry(
+          isOk ? 'ok' : 'error',
+          msg.topic || topic,
+          isOk ? (msg.output || 'ok') : (msg.error || 'error')
+        );
+      }
+    } catch {
+      entry = createLogEntry('ok', topic, text);
+    }
+  } else if (topic.startsWith('plugins/status/')) {
+    entry = createLogEntry('ok', topic, text);
+  } else if (topic.startsWith('agent/commands/')) {
+    entry = createLogEntry('ok', topic, text);
+  }
+
+  if (entry) appendLog(entry);
+}
+
+// --- MQTT (WebSocket, browser mode only) ---
 
 function connectMqtt() {
+  if (IS_TAURI) {
+    // In Tauri mode, MQTT is handled by Rust — just set up the ttyd iframe
+    terminalIframe.src = `https://${getHost()}:${getTtydPort()}`;
+    return;
+  }
+
   const host = getHost();
   const url = `${MQTT_WS_PROTO}://${host}:${getWssPort()}`;
 
@@ -560,37 +608,7 @@ function connectMqtt() {
   });
 
   client.on('message', (topic, payload) => {
-    const text = payload.toString();
-    let entry;
-
-    if (topic === TOPIC_RESPONSES || topic === 'agent/responses') {
-      try {
-        const msg = JSON.parse(text);
-        if (msg.type) {
-          // New response protocol
-          if (msg.type === 'toast') {
-            showToast(msg.message, msg.level);
-          }
-          entry = createLogEntry(msg.level === 'error' ? 'error' : 'ok', msg.source || 'agent', msg.message);
-        } else {
-          // Legacy plugin-runner response
-          const isOk = msg.status === 'ok';
-          entry = createLogEntry(
-            isOk ? 'ok' : 'error',
-            msg.topic || topic,
-            isOk ? (msg.output || 'ok') : (msg.error || 'error')
-          );
-        }
-      } catch {
-        entry = createLogEntry('ok', topic, text);
-      }
-    } else if (topic.startsWith('plugins/status/')) {
-      entry = createLogEntry('ok', topic, text);
-    } else if (topic.startsWith('agent/commands/')) {
-      entry = createLogEntry('ok', topic, text);
-    }
-
-    if (entry) appendLog(entry);
+    handleMqttMessage(topic, payload.toString());
   });
 }
 
@@ -615,8 +633,15 @@ function sendCommand() {
     text += ' over';
   }
 
-  if (client && client.connected) {
-    // Send via MQTT.js (WebSocket) — works in both browser and Tauri modes
+  if (IS_TAURI) {
+    // Send via Rust MQTT (TCP) — all MQTT flows through Rust in Tauri mode
+    tauriInvoke('send_transcription', { text: text }).then(() => {
+      appendLog(createLogEntry('sent', 'sent', text));
+    }).catch(e => {
+      appendLog(createLogEntry('error', 'send', e));
+    });
+  } else if (client && client.connected) {
+    // Browser mode: send via mqtt.js (WebSocket)
     const payload = JSON.stringify({
       text: text,
       is_final: true,
@@ -624,13 +649,6 @@ function sendCommand() {
     });
     client.publish(TOPIC_TRANSCRIPTIONS, payload);
     appendLog(createLogEntry('sent', 'sent', text));
-  } else if (IS_TAURI) {
-    // Fallback: send via Tauri → MQTT (TCP) if WebSocket isn't available
-    tauriInvoke('send_transcription', { text: text }).then(() => {
-      appendLog(createLogEntry('sent', 'sent', text));
-    }).catch(e => {
-      appendLog(createLogEntry('error', 'send', e));
-    });
   }
 
   cmdEl.value = '';
@@ -779,6 +797,27 @@ function stopWebSpeech() {
 async function initTauriEvents() {
   if (!IS_TAURI || !tauriListen) return;
 
+  // MQTT messages from Rust subscription
+  await tauriListen('mqtt-message', (event) => {
+    const { topic, payload } = event.payload;
+    handleMqttMessage(topic, payload);
+  });
+
+  // MQTT connection status from Rust
+  await tauriListen('mqtt-status', (event) => {
+    const status = event.payload;
+    if (status === 'connected') {
+      mqttDot.classList.add('ok');
+      mqttText.textContent = 'mqtt';
+      sendBtn.disabled = false;
+    } else {
+      mqttDot.classList.remove('ok');
+      mqttText.textContent = `mqtt (${status})`;
+      sendBtn.disabled = true;
+    }
+  });
+
+  // STT events
   await tauriListen('stt-transcription', (event) => {
     const text = event.payload;
     appendLog(createLogEntry('ok', 'whisper', `"${text}"`));
@@ -871,8 +910,14 @@ let currentSession = '';
 
 async function loadSessions() {
   try {
-    const resp = await fetch(`${getApiBase()}/api/sessions`);
-    const data = await resp.json();
+    let data;
+    if (IS_TAURI && tauriInvoke) {
+      const raw = await tauriInvoke('get_sessions');
+      data = JSON.parse(raw);
+    } else {
+      const resp = await fetch(`${getApiBase()}/api/sessions`);
+      data = await resp.json();
+    }
     sessionSelect.innerHTML = '';
 
     if (data.sessions && data.sessions.length > 0) {
@@ -935,7 +980,10 @@ sessionSelect.addEventListener('change', async () => {
   const val = sessionSelect.value;
   if (!val.startsWith('project:') && val) {
     try {
-      await fetch(`${getApiBase()}/api/sessions/switch?session=${encodeURIComponent(val)}`, { method: 'POST' });
+      if (!IS_TAURI) {
+        await fetch(`${getApiBase()}/api/sessions/switch?session=${encodeURIComponent(val)}`, { method: 'POST' });
+      }
+      // In Tauri mode, ttyd switch is handled by reloading the iframe (no web-ui dependency needed)
       appendLog(createLogEntry('ok', 'session', `Switched terminal to: ${val}`));
       switchSession(val);
     } catch (e) {
@@ -951,18 +999,23 @@ btnStart.addEventListener('click', async () => {
   btnStart.disabled = true;
   btnStart.textContent = '...';
   try {
-    const resp = await fetch(`${getApiBase()}/api/sessions/start?project=${encodeURIComponent(project)}`, { method: 'POST' });
-    const data = await resp.json();
-    if (data.error) {
-      appendLog(createLogEntry('error', 'session', data.error));
+    if (IS_TAURI && tauriInvoke) {
+      await tauriInvoke('start_session', { project });
     } else {
-      appendLog(createLogEntry('ok', 'session', `Started: ${project}`));
+      const resp = await fetch(`${getApiBase()}/api/sessions/start?project=${encodeURIComponent(project)}`, { method: 'POST' });
+      const data = await resp.json();
+      if (data.error) {
+        appendLog(createLogEntry('error', 'session', data.error));
+        btnStart.textContent = 'Start';
+        return;
+      }
       await fetch(`${getApiBase()}/api/sessions/switch?session=${encodeURIComponent(project)}`, { method: 'POST' });
-      switchSession(project);
-      await loadSessions();
-      sessionSelect.value = project;
-      updateButtons();
     }
+    appendLog(createLogEntry('ok', 'session', `Started: ${project}`));
+    switchSession(project);
+    await loadSessions();
+    sessionSelect.value = project;
+    updateButtons();
   } catch (e) {
     appendLog(createLogEntry('error', 'session', `Failed to start: ${e}`));
   }
@@ -975,15 +1028,20 @@ btnStop.addEventListener('click', async () => {
   btnStop.disabled = true;
   btnStop.textContent = '...';
   try {
-    const resp = await fetch(`${getApiBase()}/api/sessions/stop?session=${encodeURIComponent(session)}`, { method: 'POST' });
-    const data = await resp.json();
-    if (data.error) {
-      appendLog(createLogEntry('error', 'session', data.error));
+    if (IS_TAURI && tauriInvoke) {
+      await tauriInvoke('stop_session', { session });
     } else {
-      appendLog(createLogEntry('ok', 'session', `Stopped: ${session}`));
-      await loadSessions();
-      updateButtons();
+      const resp = await fetch(`${getApiBase()}/api/sessions/stop?session=${encodeURIComponent(session)}`, { method: 'POST' });
+      const data = await resp.json();
+      if (data.error) {
+        appendLog(createLogEntry('error', 'session', data.error));
+        btnStop.textContent = 'Stop';
+        return;
+      }
     }
+    appendLog(createLogEntry('ok', 'session', `Stopped: ${session}`));
+    await loadSessions();
+    updateButtons();
   } catch (e) {
     appendLog(createLogEntry('error', 'session', `Failed to stop: ${e}`));
   }
@@ -1065,18 +1123,18 @@ function applySettings() {
   saveSettings(newSettings);
   closeSettings();
 
-  // Reconnect frontend MQTT
-  if (client) {
-    client.end(true);
-    client = null;
-  }
-  connectMqtt();
-
-  // Reconnect Tauri backend MQTT
   if (IS_TAURI && tauriInvoke) {
+    // Reconnect Rust MQTT (handles both subscribe and publish)
     tauriInvoke('connect_mqtt', { host: newSettings.host, port: newSettings.tcpPort })
-      .then(() => appendLog(createLogEntry('ok', 'settings', 'Backend MQTT reconnected')))
-      .catch(e => appendLog(createLogEntry('error', 'settings', `Backend reconnect failed: ${e}`)));
+      .then(() => appendLog(createLogEntry('ok', 'settings', 'MQTT reconnected')))
+      .catch(e => appendLog(createLogEntry('error', 'settings', `MQTT reconnect failed: ${e}`)));
+  } else {
+    // Browser mode: reconnect mqtt.js
+    if (client) {
+      client.end(true);
+      client = null;
+    }
+    connectMqtt();
   }
 
   // Save model path to Rust backend (content:// imports are handled at browse time)
