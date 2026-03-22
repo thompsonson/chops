@@ -264,7 +264,12 @@ async fn publish_response(client: &AsyncClient, type_: &str, level: &str, messag
         "message": message,
     });
     let _ = client
-        .publish("agent/responses", QoS::AtMostOnce, false, response.to_string())
+        .publish(
+            "agent/responses",
+            QoS::AtMostOnce,
+            false,
+            response.to_string(),
+        )
         .await;
 }
 
