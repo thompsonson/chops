@@ -1011,12 +1011,21 @@ btnBrowseModel.addEventListener('click', async () => {
     return;
   }
   try {
-    // Skip extension filters — .bin has no MIME type mapping on Android
     const selected = await tauriInvoke('plugin:dialog|open', {
       options: { title: 'Select Whisper Model', multiple: false },
     });
-    if (selected) {
-      setModelPath.value = typeof selected === 'string' ? selected : selected.path;
+    if (!selected) return;
+    const uri = typeof selected === 'string' ? selected : selected.path;
+
+    if (uri.startsWith('content://')) {
+      // Import immediately — content:// permission is temporary
+      showToast('Importing model file...', 'info');
+      const dest = await tauriInvoke('import_model', { uri });
+      setModelPath.value = dest;
+      showToast(`Model imported`, 'ok');
+      modelBanner.classList.remove('visible');
+    } else {
+      setModelPath.value = uri;
     }
   } catch (e) {
     showToast(`Browse failed: ${e}`, 'error');
@@ -1052,24 +1061,13 @@ function applySettings() {
       .catch(e => appendLog(createLogEntry('error', 'settings', `Backend reconnect failed: ${e}`)));
   }
 
-  // Save model path to Rust backend
+  // Save model path to Rust backend (content:// imports are handled at browse time)
   if (IS_TAURI && tauriInvoke) {
     const modelPath = setModelPath.value.trim();
-    if (modelPath) {
-      if (modelPath.startsWith('content://')) {
-        // Android content URI — import (copy) the file to app data dir
-        showToast('Importing model file...', 'info');
-        tauriInvoke('import_model', { uri: modelPath })
-          .then(dest => {
-            showToast(`Model imported to ${dest}`, 'ok');
-            modelBanner.classList.remove('visible');
-          })
-          .catch(e => showToast(`Import failed: ${e}`, 'error'));
-      } else {
-        tauriInvoke('set_model_path', { path: modelPath })
-          .then(() => appendLog(createLogEntry('ok', 'settings', `Model path: ${modelPath}`)))
-          .catch(e => appendLog(createLogEntry('error', 'settings', `Set model path failed: ${e}`)));
-      }
+    if (modelPath && !modelPath.startsWith('content://')) {
+      tauriInvoke('set_model_path', { path: modelPath })
+        .then(() => appendLog(createLogEntry('ok', 'settings', `Model path: ${modelPath}`)))
+        .catch(e => appendLog(createLogEntry('error', 'settings', `Set model path failed: ${e}`)));
     }
   }
 
