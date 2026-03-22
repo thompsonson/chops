@@ -54,6 +54,11 @@ jobs:
         run: npx tauri android init
         working-directory: app
 
+      - name: Add Android permissions
+        run: |
+          MANIFEST=app/src-tauri/gen/android/app/src/main/AndroidManifest.xml
+          sed -i '/<manifest/a\    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.INTERNET" />' "$MANIFEST"
+
       - name: Decode keystore
         run: echo "${{ secrets.ANDROID_KEYSTORE }}" | base64 -d > /tmp/chops-release.jks
 

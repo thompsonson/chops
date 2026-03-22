@@ -642,8 +642,16 @@ function toggleRecording() {
   }
 }
 
-function startRecording() {
+async function startRecording() {
   if (IS_TAURI) {
+    // Request mic permission on Android (triggers system dialog on first use)
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach(t => t.stop()); // release immediately — cpal handles capture
+    } catch (e) {
+      showToast('Microphone permission denied', 'error');
+      return;
+    }
     tauriInvoke('start_listening').then(() => {
       isRecording = true;
       micBtn.classList.add('recording');
@@ -651,7 +659,7 @@ function startRecording() {
       whisperDot.classList.add('ok');
       whisperText.textContent = 'whisper (listening)';
     }).catch(e => {
-      appendLog(createLogEntry('error', 'mic', `Failed to start: ${e}`));
+      showToast(`Failed to start: ${e}`, 'error');
     });
   } else {
     startWebSpeech();
