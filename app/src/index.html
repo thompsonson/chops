@@ -610,6 +610,11 @@ function sendCommand() {
     text = `in ${session} ${text}`;
   }
 
+  // Auto-append terminator for "tell claude" text input so it flushes immediately
+  if (/tell claude/i.test(text) && !/\b(over|done|send it|finish|end)\s*$/i.test(text)) {
+    text += ' over';
+  }
+
   if (client && client.connected) {
     // Send via MQTT.js (WebSocket) — works in both browser and Tauri modes
     const payload = JSON.stringify({
