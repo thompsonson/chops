@@ -82,15 +82,22 @@ jobs:
         with:
           files: app/src-tauri/gen/android/app/build/outputs/apk/**/*-release.apk
 
+      - name: Set build timestamp
+        if: github.ref == 'refs/heads/main'
+        run: echo "BUILD_TIME=$(date -u '+%Y-%m-%d %H:%M UTC')" >> "$GITHUB_ENV"
+
       - name: Update dev release
         if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: dev
-          name: Dev Build
+          name: "Dev Build — ${{ env.BUILD_TIME }} (${{ github.sha }})"
           prerelease: true
+          make_latest: false
           body: |
             Rolling development build from `main`.
             Updated on every push — install via [Obtainium](https://obtainium.imranr.dev/).
-            Commit: ${{ github.sha }}
+
+            **Built:** ${{ env.BUILD_TIME }}
+            **Commit:** [`${{ github.sha }}`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})
           files: app/src-tauri/gen/android/app/build/outputs/apk/**/*-release.apk
