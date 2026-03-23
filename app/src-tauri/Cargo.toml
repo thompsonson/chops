@@ -12,7 +12,7 @@ tauri = { version = "2", features = [] }
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
-whisper-rs = "0.14"
+whisper-rs = "0.16"
 cpal = "0.17"
 rumqttc = "0.25"
 tauri-plugin-notification = "2"
