@@ -540,8 +540,8 @@ function handleMqttMessage(topic, text) {
     try {
       const msg = JSON.parse(text);
       if (msg.type) {
-        // New response protocol — toasts are handled natively in Tauri, show in-app for browser
-        if (msg.type === 'toast' && !IS_TAURI) {
+        // Show in-app toast always; Rust also fires native notification for background visibility
+        if (msg.type === 'toast') {
           showToast(msg.message, msg.level);
         }
         entry = createLogEntry(msg.level === 'error' ? 'error' : 'ok', msg.source || 'agent', msg.message);
@@ -667,14 +667,8 @@ function toggleRecording() {
 
 async function startRecording() {
   if (IS_TAURI) {
-    // Request mic permission on Android (triggers system dialog on first use)
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach(t => t.stop()); // release immediately — cpal handles capture
-    } catch (e) {
-      showToast('Microphone permission denied', 'error');
-      return;
-    }
+    // On Android, getUserMedia doesn't work in WebView even with RECORD_AUDIO granted.
+    // Skip the WebView check — cpal handles native audio capture directly.
     tauriInvoke('start_listening').then(() => {
       isRecording = true;
       micBtn.classList.add('recording');
