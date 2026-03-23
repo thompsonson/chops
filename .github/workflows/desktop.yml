@@ -12,6 +12,7 @@ permissions:
 jobs:
   build-desktop:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: macos-latest
@@ -48,6 +49,14 @@ jobs:
       - name: Install system dependencies (macOS)
         if: runner.os == 'macOS'
         run: brew install cmake
+
+      # whisper.cpp ggml auto-detects i8mm on Apple Silicon but clang fails
+      # to inline i8mm intrinsics without the right -march flag
+      - name: Set ARM build flags (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          echo "CFLAGS=-march=armv8.2-a" >> "$GITHUB_ENV"
+          echo "CXXFLAGS=-march=armv8.2-a" >> "$GITHUB_ENV"
 
       - name: Install npm dependencies
         run: npm ci
