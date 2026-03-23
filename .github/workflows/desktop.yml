@@ -52,14 +52,16 @@ jobs:
 
       # whisper.cpp ggml auto-detects i8mm on Apple Silicon but clang fails
       # to inline i8mm intrinsics without the right -march flag
-      # whisper.cpp ggml needs i8mm disabled (clang inline error) and
-      # macOS 10.15+ for std::filesystem used in ggml-backend-reg.cpp
-      - name: Set macOS build flags
+      # whisper-rs-sys passes WHISPER_*/CMAKE_* env vars to cmake.
+      # WHISPER_NATIVE=OFF: disable CPU feature auto-detect (avoids i8mm
+      #   inline errors where clang can't inline i8mm intrinsics across
+      #   target boundaries on Apple Silicon CI runners)
+      # MACOSX_DEPLOYMENT_TARGET=11.0: required for std::filesystem in ggml
+      - name: Set whisper-rs cmake flags (macOS)
         if: runner.os == 'macOS'
         run: |
-          echo "MACOSX_DEPLOYMENT_TARGET=10.15" >> "$GITHUB_ENV"
-          echo "CFLAGS=-march=armv8.2-a" >> "$GITHUB_ENV"
-          echo "CXXFLAGS=-march=armv8.2-a" >> "$GITHUB_ENV"
+          echo "MACOSX_DEPLOYMENT_TARGET=11.0" >> "$GITHUB_ENV"
+          echo "WHISPER_NATIVE=OFF" >> "$GITHUB_ENV"
 
       - name: Install npm dependencies
         run: npm ci
