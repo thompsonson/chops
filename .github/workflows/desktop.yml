@@ -52,9 +52,12 @@ jobs:
 
       # whisper.cpp ggml auto-detects i8mm on Apple Silicon but clang fails
       # to inline i8mm intrinsics without the right -march flag
-      - name: Set ARM build flags (macOS)
+      # whisper.cpp ggml needs i8mm disabled (clang inline error) and
+      # macOS 10.15+ for std::filesystem used in ggml-backend-reg.cpp
+      - name: Set macOS build flags
         if: runner.os == 'macOS'
         run: |
+          echo "MACOSX_DEPLOYMENT_TARGET=10.15" >> "$GITHUB_ENV"
           echo "CFLAGS=-march=armv8.2-a" >> "$GITHUB_ENV"
           echo "CXXFLAGS=-march=armv8.2-a" >> "$GITHUB_ENV"
 
