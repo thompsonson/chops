@@ -50,18 +50,23 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install cmake
 
-      # whisper.cpp ggml auto-detects i8mm on Apple Silicon but clang fails
-      # to inline i8mm intrinsics without the right -march flag
-      # whisper-rs-sys passes WHISPER_*/CMAKE_* env vars to cmake.
-      # WHISPER_NATIVE=OFF: disable CPU feature auto-detect (avoids i8mm
-      #   inline errors where clang can't inline i8mm intrinsics across
-      #   target boundaries on Apple Silicon CI runners)
-      # MACOSX_DEPLOYMENT_TARGET=11.0: required for std::filesystem in ggml
-      - name: Set whisper-rs cmake flags (macOS)
+      # whisper.cpp ggml on macOS ARM CI:
+      # 1. GGML_NATIVE auto-detects i8mm but Apple Clang can't inline
+      #    vmmlaq_s32 across target boundaries → build error
+      # 2. Default deployment target is 10.13 but std::filesystem needs 10.15+
+      # whisper-rs-sys only passes WHISPER_*/CMAKE_* env vars to cmake, and
+      # WHISPER_NATIVE=OFF doesn't propagate (cmake bug: falsy check skips it).
+      # Fix: patch ggml cmake to disable NATIVE, set deployment target via cmake.
+      - name: Patch whisper.cpp for macOS ARM CI
         if: runner.os == 'macOS'
         run: |
           echo "MACOSX_DEPLOYMENT_TARGET=11.0" >> "$GITHUB_ENV"
-          echo "WHISPER_NATIVE=OFF" >> "$GITHUB_ENV"
+          echo "CMAKE_OSX_DEPLOYMENT_TARGET=11.0" >> "$GITHUB_ENV"
+          # Pre-fetch whisper-rs-sys so we can patch it before the real build
+          cd app && cargo fetch --manifest-path src-tauri/Cargo.toml
+          # Disable GGML_NATIVE in ggml-cpu cmake (prevents i8mm auto-detection)
+          find ~/.cargo/registry/src -path "*/whisper-rs-sys-*/whisper.cpp/ggml/src/ggml-cpu/CMakeLists.txt" \
+            -exec sed -i '' 's/if (GGML_NATIVE)/if (FALSE) # patched for macOS CI/' {} \;
 
       - name: Install npm dependencies
         run: npm ci
