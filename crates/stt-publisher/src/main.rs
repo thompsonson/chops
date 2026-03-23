@@ -44,9 +44,7 @@ impl TranscriptionBuffer {
 
     /// Drain the buffer and return the finalized text.
     fn take(&mut self) -> String {
-        let text = self.pending.clone();
-        self.pending.clear();
-        text
+        std::mem::take(&mut self.pending)
     }
 
     /// Heuristic: punctuation at end of line suggests whisper considers the

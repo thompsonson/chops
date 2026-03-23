@@ -2,11 +2,12 @@ mod intent;
 
 use anyhow::Result;
 use chops_common::{
-    self, DEFAULT_MQTT_HOST, MQTT_KEEP_ALIVE_SECS, MQTT_QUEUE_CAPACITY, MQTT_RECONNECT_DELAY_SECS,
+    self, Pane, TmuxCommand, DEFAULT_MQTT_HOST, MQTT_KEEP_ALIVE_SECS, MQTT_QUEUE_CAPACITY,
+    MQTT_RECONNECT_DELAY_SECS,
 };
 use intent::{
     discover_projects, has_terminator, parse_intent, strip_terminator, Intent, IntentMatch,
-    ParseContext, TmuxCommand,
+    ParseContext,
 };
 use rumqttc::{AsyncClient, Event, Incoming, MqttOptions, QoS};
 use serde::Deserialize;
@@ -25,12 +26,21 @@ struct TranscriptionMessage {
     is_final: bool,
 }
 
+/// What the accumulator decided after receiving new text.
+enum AccumulatorAction {
+    /// Finalized — dispatch this command, accumulator is consumed.
+    Dispatch(TmuxCommand),
+    /// Finalized current buffer AND a new intent was detected — dispatch both.
+    DispatchAndNewIntent(TmuxCommand, IntentMatch),
+    /// Still accumulating — caller should keep the accumulator.
+    Continue(Accumulator),
+}
+
 /// Accumulates multi-segment utterances for Claude messages.
 /// Buffers text until a terminator keyword ("over", "done", etc.) is heard.
 struct Accumulator {
     /// The target project and pane from the initial "tell claude" command.
     session: Option<String>,
-    confidence: f64,
     /// Accumulated message segments.
     segments: Vec<String>,
     /// When accumulation started.
@@ -38,14 +48,13 @@ struct Accumulator {
 }
 
 impl Accumulator {
-    fn new(session: Option<String>, initial_message: String, confidence: f64) -> Self {
+    fn new(session: Option<String>, initial_message: String) -> Self {
         info!(
             "Accumulating claude message for session {:?}: \"{}\"",
             session, initial_message
         );
         Self {
             session,
-            confidence,
             segments: vec![initial_message],
             started: Instant::now(),
         }
@@ -60,17 +69,41 @@ impl Accumulator {
         self.started.elapsed() > ACCUMULATOR_TIMEOUT
     }
 
-    fn build_command(self) -> (TmuxCommand, f64) {
+    fn build_command(self) -> TmuxCommand {
         let message = self.segments.join(" ");
         info!("Finalized accumulated message: \"{}\"", message);
-        (
-            TmuxCommand {
-                session: self.session,
-                pane: "claude".to_string(),
-                command: message,
-            },
-            self.confidence,
-        )
+        TmuxCommand {
+            session: self.session,
+            pane: Pane::Claude,
+            command: message,
+        }
+    }
+
+    /// Process incoming text and decide what to do.
+    /// This is a pure state machine — no MQTT, no side effects.
+    fn receive(mut self, text: &str, ctx: &ParseContext) -> AccumulatorAction {
+        // Terminator found — finalize.
+        if let Some(stripped) = strip_terminator(text) {
+            if !stripped.is_empty() {
+                self.append(&stripped);
+            }
+            return AccumulatorAction::Dispatch(self.build_command());
+        }
+
+        // New command detected — flush accumulated, return new intent.
+        if let Some(m) = parse_intent(text, ctx) {
+            warn!("New command while accumulating — flushing accumulated message");
+            return AccumulatorAction::DispatchAndNewIntent(self.build_command(), m);
+        }
+
+        // Continuation — append cleaned text.
+        let cleaned = text
+            .trim_matches(|c: char| c.is_ascii_punctuation() || c.is_whitespace())
+            .to_string();
+        if !cleaned.is_empty() {
+            self.append(&cleaned);
+        }
+        AccumulatorAction::Continue(self)
     }
 }
 
@@ -134,8 +167,8 @@ async fn main() -> Result<()> {
                     if acc.is_expired() {
                         warn!("Accumulator timed out after {}s, flushing", ACCUMULATOR_TIMEOUT.as_secs());
                         let acc = accumulator.take().unwrap();
-                        let (cmd, _confidence) = acc.build_command();
-                        let payload = serde_json::to_string(&cmd).unwrap();
+                        let cmd = acc.build_command();
+                        let payload = serde_json::to_string(&cmd).expect("serialize TmuxCommand");
                         dispatch(&client, "agent/commands/tmux", &payload).await;
                     }
                 }
@@ -151,41 +184,21 @@ async fn handle_transcription(
     ctx: &ParseContext,
     accumulator: Option<Accumulator>,
 ) -> Option<Accumulator> {
-    // If we're accumulating and this segment has a terminator, finalize.
-    if let Some(mut acc) = accumulator {
-        if let Some(stripped) = strip_terminator(text) {
-            // Append any content before the terminator.
-            if !stripped.is_empty() {
-                acc.append(&stripped);
+    // If we're accumulating, delegate to the state machine.
+    if let Some(acc) = accumulator {
+        return match acc.receive(text, ctx) {
+            AccumulatorAction::Dispatch(cmd) => {
+                let payload = serde_json::to_string(&cmd).expect("serialize TmuxCommand");
+                dispatch(client, "agent/commands/tmux", &payload).await;
+                None
             }
-            let (cmd, _confidence) = acc.build_command();
-            let payload = serde_json::to_string(&cmd).unwrap();
-            dispatch(client, "agent/commands/tmux", &payload).await;
-            return None;
-        }
-
-        // No terminator — check if this is a new command (not a continuation).
-        if let Some(m) = parse_intent(text, ctx) {
-            // New command detected while accumulating — flush the accumulated
-            // message first, then handle the new command.
-            warn!("New command while accumulating — flushing accumulated message");
-            let (cmd, _confidence) = acc.build_command();
-            let payload = serde_json::to_string(&cmd).unwrap();
-            dispatch(client, "agent/commands/tmux", &payload).await;
-
-            // Handle the new command (may start a new accumulator).
-            return handle_new_intent(m, client).await;
-        }
-
-        // No terminator, no new command — append as continuation.
-        // Strip filler/punctuation from the continuation segment.
-        let cleaned = text
-            .trim_matches(|c: char| c.is_ascii_punctuation() || c.is_whitespace())
-            .to_string();
-        if !cleaned.is_empty() {
-            acc.append(&cleaned);
-        }
-        return Some(acc);
+            AccumulatorAction::DispatchAndNewIntent(cmd, m) => {
+                let payload = serde_json::to_string(&cmd).expect("serialize TmuxCommand");
+                dispatch(client, "agent/commands/tmux", &payload).await;
+                handle_new_intent(m, client).await
+            }
+            AccumulatorAction::Continue(acc) => Some(acc),
+        };
     }
 
     // Not accumulating — check if this is a terminator word by itself (ignore it).
@@ -214,7 +227,7 @@ async fn handle_new_intent(m: IntentMatch, client: &AsyncClient) -> Option<Accum
     );
 
     match m.intent {
-        Intent::Tmux(cmd) if cmd.pane == "claude" => {
+        Intent::Tmux(cmd) if cmd.pane == Pane::Claude => {
             // Check if the message itself already contains a terminator.
             if let Some(stripped) = strip_terminator(&cmd.command) {
                 let final_cmd = TmuxCommand {
@@ -225,16 +238,16 @@ async fn handle_new_intent(m: IntentMatch, client: &AsyncClient) -> Option<Accum
                     },
                     ..cmd
                 };
-                let payload = serde_json::to_string(&final_cmd).unwrap();
+                let payload = serde_json::to_string(&final_cmd).expect("serialize TmuxCommand");
                 dispatch(client, "agent/commands/tmux", &payload).await;
                 None
             } else {
                 // Start accumulating — wait for "over".
-                Some(Accumulator::new(cmd.session, cmd.command, m.confidence))
+                Some(Accumulator::new(cmd.session, cmd.command))
             }
         }
         Intent::Tmux(cmd) => {
-            let payload = serde_json::to_string(&cmd).unwrap();
+            let payload = serde_json::to_string(&cmd).expect("serialize TmuxCommand");
             dispatch(client, "agent/commands/tmux", &payload).await;
             None
         }

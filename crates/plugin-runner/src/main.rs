@@ -1,9 +1,9 @@
 use anyhow::Result;
 use chops_common::{
-    self, DEFAULT_MQTT_HOST, MQTT_KEEP_ALIVE_SECS, MQTT_QUEUE_CAPACITY, MQTT_RECONNECT_DELAY_SECS,
+    self, Pane, TmuxCommand, DEFAULT_MQTT_HOST, MQTT_KEEP_ALIVE_SECS, MQTT_QUEUE_CAPACITY,
+    MQTT_RECONNECT_DELAY_SECS,
 };
 use rumqttc::{AsyncClient, Event, Incoming, MqttOptions, QoS};
-use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::process::Stdio;
 use std::time::Duration;
@@ -15,14 +15,6 @@ const TERMUX_TOPIC: &str = "agent/commands/termux";
 const TMUX_TOPIC: &str = "agent/commands/tmux";
 const RESPONSES_TOPIC: &str = "agent/responses";
 const STATUS_TOPIC: &str = "plugins/status/runner";
-
-/// Matches the TmuxCommand struct from agent-core.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct TmuxCommand {
-    session: Option<String>,
-    pane: String,
-    command: String,
-}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -143,9 +135,9 @@ async fn handle_tmux(payload: &str) -> Result<String> {
     let pane_index = if pane_count == 1 {
         "1"
     } else {
-        match cmd.pane.as_str() {
-            "claude" => "1",
-            _ => "2",
+        match cmd.pane {
+            Pane::Claude => "1",
+            Pane::Shell => "2",
         }
     };
 

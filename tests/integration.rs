@@ -3,7 +3,8 @@
 //! These tests require a running Mosquitto broker on the configured port.
 //! Tests auto-skip if the broker is unavailable.
 
-use agent_core::intent::{parse_intent, Intent, ParseContext, TmuxCommand};
+use agent_core::intent::{parse_intent, Intent, ParseContext};
+use chops_common::{Pane, TmuxCommand};
 use rumqttc::{AsyncClient, Event, Incoming, MqttOptions, QoS};
 use serde_json::json;
 use std::time::Duration;
@@ -118,7 +119,7 @@ async fn pipeline_routes_tmux_run_command() {
     assert!(received.is_some());
     let cmd: TmuxCommand = serde_json::from_str(&received.unwrap()).unwrap();
     assert_eq!(cmd.session, Some("chops".into()));
-    assert_eq!(cmd.pane, "shell");
+    assert_eq!(cmd.pane, Pane::Shell);
     assert_eq!(cmd.command, "cargo test");
 }
 
@@ -134,7 +135,7 @@ async fn pipeline_routes_tmux_tell_claude() {
     assert!(received.is_some());
     let cmd: TmuxCommand = serde_json::from_str(&received.unwrap()).unwrap();
     assert_eq!(cmd.session, Some("chops".into()));
-    assert_eq!(cmd.pane, "claude");
+    assert_eq!(cmd.pane, Pane::Claude);
     assert_eq!(cmd.command, "fix the tests");
 }
 
@@ -165,7 +166,7 @@ async fn pipeline_routes_noisy_whisper_input() {
     assert!(received.is_some());
     let cmd: TmuxCommand = serde_json::from_str(&received.unwrap()).unwrap();
     assert_eq!(cmd.session, Some("chops".into())); // fuzzy matched
-    assert_eq!(cmd.pane, "shell");
+    assert_eq!(cmd.pane, Pane::Shell);
     assert_eq!(cmd.command, "cargo test");
 }
 

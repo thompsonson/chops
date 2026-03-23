@@ -1,17 +1,7 @@
 use regex::Regex;
-use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 
-/// Structured command for the tmux plugin.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TmuxCommand {
-    /// Target tmux session name (e.g., "chops"). None = active session.
-    pub session: Option<String>,
-    /// Target pane: "shell" (right, :1.2) or "claude" (left, :1.1).
-    pub pane: String,
-    /// The command text to send via send-keys.
-    pub command: String,
-}
+pub use chops_common::{Pane, TmuxCommand};
 
 /// Routing decision returned by parse_intent.
 #[derive(Debug, Clone, PartialEq)]
@@ -204,7 +194,7 @@ pub fn parse_intent(text: &str, ctx: &ParseContext) -> Option<IntentMatch> {
         return Some(IntentMatch {
             intent: Intent::Tmux(TmuxCommand {
                 session: Some(project),
-                pane: "claude".to_string(),
+                pane: Pane::Claude,
                 command: caps[2].to_string(),
             }),
             confidence,
@@ -217,7 +207,7 @@ pub fn parse_intent(text: &str, ctx: &ParseContext) -> Option<IntentMatch> {
         return Some(IntentMatch {
             intent: Intent::Tmux(TmuxCommand {
                 session: Some(project),
-                pane: "shell".to_string(),
+                pane: Pane::Shell,
                 command: caps[2].to_string(),
             }),
             confidence,
@@ -229,7 +219,7 @@ pub fn parse_intent(text: &str, ctx: &ParseContext) -> Option<IntentMatch> {
         return Some(IntentMatch {
             intent: Intent::Tmux(TmuxCommand {
                 session: None,
-                pane: "shell".to_string(),
+                pane: Pane::Shell,
                 command: caps[1].to_string(),
             }),
             confidence: 1.0,
@@ -364,7 +354,7 @@ mod tests {
             m.intent,
             Intent::Tmux(TmuxCommand {
                 session: Some("chops".into()),
-                pane: "shell".into(),
+                pane: Pane::Shell,
                 command: "cargo test".into(),
             })
         );
@@ -378,7 +368,7 @@ mod tests {
             m.intent,
             Intent::Tmux(TmuxCommand {
                 session: Some("chops".into()),
-                pane: "shell".into(),
+                pane: Pane::Shell,
                 command: "cargo test --release".into(),
             })
         );
@@ -391,7 +381,7 @@ mod tests {
             m.intent,
             Intent::Tmux(TmuxCommand {
                 session: Some("chops".into()),
-                pane: "shell".into(),
+                pane: Pane::Shell,
                 command: "cargo test".into(),
             })
         );
@@ -404,7 +394,7 @@ mod tests {
             m.intent,
             Intent::Tmux(TmuxCommand {
                 session: Some("chops".into()),
-                pane: "shell".into(),
+                pane: Pane::Shell,
                 command: "cargo test".into(),
             })
         );
@@ -417,7 +407,7 @@ mod tests {
             m.intent,
             Intent::Tmux(TmuxCommand {
                 session: Some("chops".into()),
-                pane: "claude".into(),
+                pane: Pane::Claude,
                 command: "fix the tests".into(),
             })
         );
@@ -430,7 +420,7 @@ mod tests {
             m.intent,
             Intent::Tmux(TmuxCommand {
                 session: Some("chops".into()),
-                pane: "claude".into(),
+                pane: Pane::Claude,
                 command: "fix the tests".into(),
             })
         );
@@ -445,7 +435,7 @@ mod tests {
             m.intent,
             Intent::Tmux(TmuxCommand {
                 session: Some("chops".into()),
-                pane: "shell".into(),
+                pane: Pane::Shell,
                 command: "cargo test".into(),
             })
         );
@@ -465,7 +455,7 @@ mod tests {
             m.intent,
             Intent::Tmux(TmuxCommand {
                 session: Some("newproject".into()),
-                pane: "shell".into(),
+                pane: Pane::Shell,
                 command: "ls".into(),
             })
         );
@@ -481,7 +471,7 @@ mod tests {
             m.intent,
             Intent::Tmux(TmuxCommand {
                 session: None,
-                pane: "shell".into(),
+                pane: Pane::Shell,
                 command: "cargo build".into(),
             })
         );
@@ -494,7 +484,7 @@ mod tests {
             m.intent,
             Intent::Tmux(TmuxCommand {
                 session: None,
-                pane: "shell".into(),
+                pane: Pane::Shell,
                 command: "git log --oneline -10".into(),
             })
         );
@@ -545,7 +535,7 @@ mod tests {
             m.intent,
             Intent::Tmux(TmuxCommand {
                 session: Some("chops".into()),
-                pane: "shell".into(),
+                pane: Pane::Shell,
                 command: "cargo test".into(),
             })
         );
@@ -558,7 +548,7 @@ mod tests {
             m.intent,
             Intent::Tmux(TmuxCommand {
                 session: None,
-                pane: "shell".into(),
+                pane: Pane::Shell,
                 command: "ls".into(),
             })
         );
@@ -576,7 +566,7 @@ mod tests {
             m.intent,
             Intent::Tmux(TmuxCommand {
                 session: None,
-                pane: "shell".into(),
+                pane: Pane::Shell,
                 command: "cargo test".into(),
             })
         );
@@ -589,7 +579,7 @@ mod tests {
             m.intent,
             Intent::Tmux(TmuxCommand {
                 session: None,
-                pane: "shell".into(),
+                pane: Pane::Shell,
                 command: "cargo build".into(),
             })
         );
@@ -602,7 +592,7 @@ mod tests {
             m.intent,
             Intent::Tmux(TmuxCommand {
                 session: Some("chops".into()),
-                pane: "claude".into(),
+                pane: Pane::Claude,
                 command: "review the code".into(),
             })
         );
@@ -615,7 +605,7 @@ mod tests {
             m.intent,
             Intent::Tmux(TmuxCommand {
                 session: None,
-                pane: "shell".into(),
+                pane: Pane::Shell,
                 command: "cargo test".into(),
             })
         );
@@ -629,7 +619,7 @@ mod tests {
             m.intent,
             Intent::Tmux(TmuxCommand {
                 session: Some("chops".into()),
-                pane: "shell".into(),
+                pane: Pane::Shell,
                 command: "cargo clippy".into(),
             })
         );
@@ -642,7 +632,7 @@ mod tests {
             m.intent,
             Intent::Tmux(TmuxCommand {
                 session: None,
-                pane: "shell".into(),
+                pane: Pane::Shell,
                 command: "git status".into(),
             })
         );
@@ -655,7 +645,7 @@ mod tests {
             m.intent,
             Intent::Tmux(TmuxCommand {
                 session: Some("chops".into()),
-                pane: "shell".into(),
+                pane: Pane::Shell,
                 command: "cargo build --release".into(),
             })
         );
@@ -668,7 +658,7 @@ mod tests {
             m.intent,
             Intent::Tmux(TmuxCommand {
                 session: Some("chops".into()),
-                pane: "claude".into(),
+                pane: Pane::Claude,
                 command: "add unit tests".into(),
             })
         );
@@ -687,7 +677,7 @@ mod tests {
             m.intent,
             Intent::Tmux(TmuxCommand {
                 session: None,
-                pane: "shell".into(),
+                pane: Pane::Shell,
                 command: "cat file.txt | grep error".into(),
             })
         );
@@ -700,7 +690,7 @@ mod tests {
             m.intent,
             Intent::Tmux(TmuxCommand {
                 session: Some("chops".into()),
-                pane: "shell".into(),
+                pane: Pane::Shell,
                 command: "docker compose up -d --build".into(),
             })
         );
@@ -714,7 +704,7 @@ mod tests {
             m.intent,
             Intent::Tmux(TmuxCommand {
                 session: Some("chops".into()),
-                pane: "shell".into(),
+                pane: Pane::Shell,
                 command: "cargo test".into(),
             })
         );
@@ -728,7 +718,7 @@ mod tests {
             m.intent,
             Intent::Tmux(TmuxCommand {
                 session: Some("chops".into()),
-                pane: "shell".into(),
+                pane: Pane::Shell,
                 command: "make build".into(),
             })
         );
@@ -762,7 +752,7 @@ mod tests {
             m.intent,
             Intent::Tmux(TmuxCommand {
                 session: Some("chops".into()),
-                pane: "shell".into(),
+                pane: Pane::Shell,
                 command: "ls".into(),
             })
         );
@@ -777,7 +767,7 @@ mod tests {
             m.intent,
             Intent::Tmux(TmuxCommand {
                 session: Some("chops".into()),
-                pane: "shell".into(),
+                pane: Pane::Shell,
                 command: "ls".into(),
             })
         );
@@ -792,7 +782,7 @@ mod tests {
             m.intent,
             Intent::Tmux(TmuxCommand {
                 session: Some("xyz".into()),
-                pane: "shell".into(),
+                pane: Pane::Shell,
                 command: "ls".into(),
             })
         );
@@ -807,7 +797,7 @@ mod tests {
             m.intent,
             Intent::Tmux(TmuxCommand {
                 session: Some("manta-deploy".into()),
-                pane: "shell".into(),
+                pane: Pane::Shell,
                 command: "ls".into(),
             })
         );
@@ -822,7 +812,7 @@ mod tests {
             m.intent,
             Intent::Tmux(TmuxCommand {
                 session: Some("dotfiles".into()),
-                pane: "shell".into(),
+                pane: Pane::Shell,
                 command: "ls".into(),
             })
         );
@@ -891,7 +881,7 @@ mod tests {
             m.intent,
             Intent::Tmux(TmuxCommand {
                 session: Some("banana".into()),
-                pane: "shell".into(),
+                pane: Pane::Shell,
                 command: "ls".into(),
             })
         );

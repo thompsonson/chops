@@ -51,7 +51,7 @@ fn json_err(msg: &str) -> (StatusCode, [(&'static str, &'static str); 1], String
     (
         StatusCode::INTERNAL_SERVER_ERROR,
         [("content-type", "application/json")],
-        format!(r#"{{"error":"{}"}}"#, msg),
+        serde_json::json!({"error": msg}).to_string(),
     )
 }
 
@@ -59,7 +59,7 @@ fn json_bad(msg: &str) -> (StatusCode, [(&'static str, &'static str); 1], String
     (
         StatusCode::BAD_REQUEST,
         [("content-type", "application/json")],
-        format!(r#"{{"error":"{}"}}"#, msg),
+        serde_json::json!({"error": msg}).to_string(),
     )
 }
 
@@ -109,7 +109,7 @@ async fn api_switch_session(Query(params): Query<SessionParams>) -> impl IntoRes
     match tokio::fs::write(&state_file, &session).await {
         Ok(_) => {
             info!("Switched ttyd session to: {session}");
-            json_ok(format!(r#"{{"session":"{}"}}"#, session))
+            json_ok(serde_json::json!({"session": session}).to_string())
         }
         Err(e) => json_err(&e.to_string()),
     }
@@ -132,11 +132,7 @@ async fn api_start_session(Query(params): Query<StartParams>) -> impl IntoRespon
     match run_dev(&args).await {
         Ok(output) => {
             info!("Started session: {project}");
-            json_ok(format!(
-                r#"{{"project":"{}","output":"{}"}}"#,
-                project,
-                output.trim()
-            ))
+            json_ok(serde_json::json!({"project": project, "output": output.trim()}).to_string())
         }
         Err(e) => json_err(&e),
     }
@@ -152,11 +148,7 @@ async fn api_stop_session(Query(params): Query<SessionParams>) -> impl IntoRespo
     match run_dev(&["stop", &session]).await {
         Ok(output) => {
             info!("Stopped session: {session}");
-            json_ok(format!(
-                r#"{{"session":"{}","output":"{}"}}"#,
-                session,
-                output.trim()
-            ))
+            json_ok(serde_json::json!({"session": session, "output": output.trim()}).to_string())
         }
         Err(e) => json_err(&e),
     }
