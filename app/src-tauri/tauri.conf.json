@@ -23,6 +23,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -33,6 +34,14 @@
     ],
     "android": {
       "minSdkVersion": 26
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJDNzlGRkU5MEE5QkU2OTAKUldTUTVwc0s2Zjk1TEM5czJuMVhhck1hL1lvcWpxWE9LZXdBelFyZFdUTGY2YzJEbEtnNzZWckkK",
+      "endpoints": [
+        "https://github.com/thompsonson/chops/releases/latest/download/latest.json"
+      ]
     }
   }
 }

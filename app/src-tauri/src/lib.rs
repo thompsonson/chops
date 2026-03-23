@@ -8,6 +8,9 @@ use tauri::Manager;
 use tauri_plugin_fs::FsExt;
 use tracing::info;
 
+#[cfg(desktop)]
+use tauri_plugin_updater::UpdaterExt;
+
 pub struct AppState {
     pub mqtt: Arc<MqttClient>,
     stt: Arc<SttEngine>,
@@ -164,17 +167,127 @@ async fn stop_session(session: String) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
+// --- Updater commands (desktop only, stubs on mobile) ---
+
+fn updater_endpoint(channel: &str) -> &'static str {
+    match channel {
+        "dev" => "https://github.com/thompsonson/chops/releases/download/dev-desktop/latest.json",
+        _ => "https://github.com/thompsonson/chops/releases/latest/download/latest.json",
+    }
+}
+
+#[cfg(desktop)]
+#[tauri::command]
+async fn check_for_update(
+    app: tauri::AppHandle,
+    channel: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let ch = channel.as_deref().unwrap_or("stable");
+    let endpoint = updater_endpoint(ch);
+    let url: url::Url = endpoint.parse().map_err(|e: url::ParseError| e.to_string())?;
+
+    let updater = app
+        .updater_builder()
+        .endpoints(vec![url])
+        .map_err(|e| e.to_string())?
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let update = updater.check().await.map_err(|e| e.to_string())?;
+
+    match update {
+        Some(u) => Ok(serde_json::json!({
+            "available": true,
+            "version": u.version,
+            "body": u.body,
+        })),
+        None => Ok(serde_json::json!({
+            "available": false,
+        })),
+    }
+}
+
+#[cfg(desktop)]
+#[tauri::command]
+async fn install_update(
+    app: tauri::AppHandle,
+    channel: Option<String>,
+) -> Result<String, String> {
+    use tauri::Emitter;
+
+    let ch = channel.as_deref().unwrap_or("stable");
+    let endpoint = updater_endpoint(ch);
+    let url: url::Url = endpoint.parse().map_err(|e: url::ParseError| e.to_string())?;
+
+    let updater = app
+        .updater_builder()
+        .endpoints(vec![url])
+        .map_err(|e| e.to_string())?
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let update = updater
+        .check()
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "No update available".to_string())?;
+
+    let app_handle = app.clone();
+    let mut downloaded: u64 = 0;
+
+    update
+        .download_and_install(
+            move |chunk, _total| {
+                downloaded += chunk as u64;
+                let _ = app_handle.emit("update-progress", serde_json::json!({
+                    "downloaded": downloaded,
+                    "total": _total,
+                }));
+            },
+            || {},
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+
+    app.restart();
+}
+
+#[cfg(mobile)]
+#[tauri::command]
+async fn check_for_update(
+    _app: tauri::AppHandle,
+    _channel: Option<String>,
+) -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({ "available": false, "message": "Updates not available on mobile" }))
+}
+
+#[cfg(mobile)]
+#[tauri::command]
+async fn install_update(
+    _app: tauri::AppHandle,
+    _channel: Option<String>,
+) -> Result<String, String> {
+    Err("Updates not available on mobile".to_string())
+}
+
 pub fn run() {
     tracing_subscriber::fmt::init();
 
     let mqtt = Arc::new(MqttClient::new());
     let stt = Arc::new(SttEngine::new());
 
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_notification::init());
+
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    }
+
+    builder
         .setup(move |app| {
             let state = AppState {
                 mqtt: mqtt.clone(),
@@ -208,6 +321,8 @@ pub fn run() {
             get_sessions,
             start_session,
             stop_session,
+            check_for_update,
+            install_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

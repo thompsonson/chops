@@ -72,16 +72,29 @@ jobs:
         run: npm ci
         working-directory: app
 
+      - name: Set dev version
+        if: github.ref == 'refs/heads/main'
+        run: |
+          DEV_VERSION="0.1.0-dev.$(date -u +%Y%m%d%H%M%S)"
+          jq --arg v "$DEV_VERSION" '.version = $v' src-tauri/tauri.conf.json > tmp.json && mv tmp.json src-tauri/tauri.conf.json
+        working-directory: app
+
       - name: Build Tauri app
         run: npx tauri build
         working-directory: app
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       - name: Upload artifacts (macOS)
         if: runner.os == 'macOS'
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
-          path: app/src-tauri/target/release/bundle/dmg/*.dmg
+          path: |
+            app/src-tauri/target/release/bundle/dmg/*.dmg
+            app/src-tauri/target/release/bundle/macos/*.app.tar.gz
+            app/src-tauri/target/release/bundle/macos/*.app.tar.gz.sig
           if-no-files-found: error
 
       - name: Upload artifacts (Linux)
@@ -91,6 +104,8 @@ jobs:
           name: ${{ matrix.artifact }}
           path: |
             app/src-tauri/target/release/bundle/appimage/*.AppImage
+            app/src-tauri/target/release/bundle/appimage/*.AppImage.tar.gz
+            app/src-tauri/target/release/bundle/appimage/*.AppImage.tar.gz.sig
             app/src-tauri/target/release/bundle/deb/*.deb
           if-no-files-found: error
 
@@ -106,9 +121,68 @@ jobs:
       - name: Collect release files
         run: |
           mkdir -p release-files
-          find artifacts -name '*.dmg' -o -name '*.AppImage' -o -name '*.deb' | \
+          find artifacts -type f \( -name '*.dmg' -o -name '*.AppImage' -o -name '*.AppImage.tar.gz' -o -name '*.AppImage.tar.gz.sig' -o -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' -o -name '*.deb' \) | \
             xargs -I{} cp {} release-files/
           ls -la release-files/
+
+      - name: Generate latest.json for updater
+        run: |
+          # Determine version from artifact filenames or git tag
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            # Dev build — extract version from artifact name
+            VERSION=$(ls release-files/*.AppImage.tar.gz 2>/dev/null | head -1 | grep -oP '\d+\.\d+\.\d+-dev\.\d+' || echo "0.1.0-dev")
+          fi
+
+          REPO_URL="https://github.com/${{ github.repository }}"
+          PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          # Determine release tag for download URLs
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            DL_BASE="$REPO_URL/releases/download/$TAG"
+          else
+            DL_BASE="$REPO_URL/releases/download/dev-desktop"
+          fi
+
+          # Read signatures
+          LINUX_SIG=""
+          MACOS_SIG=""
+          LINUX_URL=""
+          MACOS_URL=""
+
+          for f in release-files/*.AppImage.tar.gz.sig; do
+            [ -f "$f" ] && LINUX_SIG=$(cat "$f")
+            LINUX_BUNDLE=$(basename "${f%.sig}")
+            LINUX_URL="$DL_BASE/$LINUX_BUNDLE"
+          done
+
+          for f in release-files/*.app.tar.gz.sig; do
+            [ -f "$f" ] && MACOS_SIG=$(cat "$f")
+            MACOS_BUNDLE=$(basename "${f%.sig}")
+            MACOS_URL="$DL_BASE/$MACOS_BUNDLE"
+          done
+
+          # Build latest.json
+          PLATFORMS="{}"
+          if [ -n "$LINUX_SIG" ]; then
+            PLATFORMS=$(echo "$PLATFORMS" | jq --arg url "$LINUX_URL" --arg sig "$LINUX_SIG" '. + {"linux-x86_64": {"url": $url, "signature": $sig}}')
+          fi
+          if [ -n "$MACOS_SIG" ]; then
+            PLATFORMS=$(echo "$PLATFORMS" | jq --arg url "$MACOS_URL" --arg sig "$MACOS_SIG" '. + {"darwin-aarch64": {"url": $url, "signature": $sig}}')
+          fi
+
+          jq -n \
+            --arg version "$VERSION" \
+            --arg notes "Release $VERSION" \
+            --arg pub_date "$PUB_DATE" \
+            --argjson platforms "$PLATFORMS" \
+            '{version: $version, notes: $notes, pub_date: $pub_date, platforms: $platforms}' \
+            > release-files/latest.json
+
+          echo "Generated latest.json:"
+          cat release-files/latest.json
 
       - name: Upload to tagged release
         if: startsWith(github.ref, 'refs/tags/')

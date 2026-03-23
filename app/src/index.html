@@ -405,6 +405,15 @@ if (!window.__TAURI_INTERNALS__) {
         <input type="text" id="set-model-path" placeholder="ggml-base.en.bin">
         <button class="btn-browse" id="btn-browse-model">Browse</button>
       </div>
+      <label for="set-update-channel">Update Channel</label>
+      <select id="set-update-channel">
+        <option value="stable">Stable (tagged releases)</option>
+        <option value="dev">Dev (rolling main builds)</option>
+      </select>
+      <div style="margin-top: 0.5rem;">
+        <button class="session-btn" id="btn-check-update" style="font-size: 0.8rem; padding: 0.4rem 0.8rem;">Check for Updates</button>
+        <span id="update-status" style="font-size: 0.75rem; color: var(--muted); margin-left: 0.5rem;"></span>
+      </div>
       <div class="modal-buttons">
         <button class="btn-cancel" id="settings-cancel">Cancel</button>
         <button id="settings-save">Save &amp; Reconnect</button>
@@ -480,6 +489,7 @@ const DEFAULT_SETTINGS = {
   tcpPort: 1884,
   apiPort: 8443,
   ttydPort: 7681,
+  updateChannel: 'stable',
 };
 
 let settings = loadSettings();
@@ -1057,6 +1067,9 @@ const setApiPort = document.getElementById('set-api-port');
 const setTtydPort = document.getElementById('set-ttyd-port');
 const setModelPath = document.getElementById('set-model-path');
 const btnBrowseModel = document.getElementById('btn-browse-model');
+const setUpdateChannel = document.getElementById('set-update-channel');
+const btnCheckUpdate = document.getElementById('btn-check-update');
+const updateStatusEl = document.getElementById('update-status');
 
 async function openSettings() {
   setHost.value = settings.host;
@@ -1064,6 +1077,8 @@ async function openSettings() {
   setTcpPort.value = settings.tcpPort;
   setApiPort.value = settings.apiPort;
   setTtydPort.value = settings.ttydPort;
+  setUpdateChannel.value = settings.updateChannel || 'stable';
+  updateStatusEl.textContent = '';
 
   // Load model path from Rust backend
   if (IS_TAURI && tauriInvoke) {
@@ -1113,6 +1128,7 @@ function applySettings() {
     tcpPort: parseInt(setTcpPort.value) || DEFAULT_SETTINGS.tcpPort,
     apiPort: parseInt(setApiPort.value) || DEFAULT_SETTINGS.apiPort,
     ttydPort: parseInt(setTtydPort.value) || DEFAULT_SETTINGS.ttydPort,
+    updateChannel: setUpdateChannel.value || 'stable',
   };
   saveSettings(newSettings);
   closeSettings();
@@ -1153,6 +1169,44 @@ settingsOverlay.addEventListener('click', (e) => {
   if (e.target === settingsOverlay) closeSettings();
 });
 
+// --- Update check ---
+
+btnCheckUpdate.addEventListener('click', async () => {
+  if (!IS_TAURI || !tauriInvoke) {
+    updateStatusEl.textContent = 'Updates require the desktop app.';
+    return;
+  }
+  btnCheckUpdate.disabled = true;
+  updateStatusEl.textContent = 'Checking...';
+  try {
+    const channel = setUpdateChannel.value || settings.updateChannel || 'stable';
+    const result = await tauriInvoke('check_for_update', { channel });
+    if (result.available) {
+      updateStatusEl.textContent = `v${result.version} available!`;
+      if (confirm(`Update to v${result.version}?\n\n${result.body || 'No release notes.'}`)) {
+        updateStatusEl.textContent = 'Downloading...';
+        await tauriInvoke('install_update', { channel });
+      }
+    } else {
+      updateStatusEl.textContent = 'You are up to date.';
+    }
+  } catch (e) {
+    updateStatusEl.textContent = `Error: ${e}`;
+  }
+  btnCheckUpdate.disabled = false;
+});
+
+async function silentUpdateCheck() {
+  if (!IS_TAURI || !tauriInvoke) return;
+  try {
+    const channel = settings.updateChannel || 'stable';
+    const result = await tauriInvoke('check_for_update', { channel });
+    if (result.available) {
+      showToast(`Update available: v${result.version} (${channel})`, 'info');
+    }
+  } catch {}
+}
+
 // --- Event listeners ---
 
 sendBtn.addEventListener('click', sendCommand);
@@ -1174,6 +1228,20 @@ if (IS_TAURI) {
   tauriInvoke('connect_mqtt', { host: settings.host, port: settings.tcpPort })
     .then(() => appendLog(createLogEntry('ok', 'mqtt', `Backend connected to ${settings.host}:${settings.tcpPort}`)))
     .catch(e => appendLog(createLogEntry('error', 'mqtt', `Backend connect failed: ${e}`)));
+
+  // Listen for download progress events
+  tauriListen('update-progress', (event) => {
+    const { downloaded, total } = event.payload;
+    if (total) {
+      const pct = Math.round((downloaded / total) * 100);
+      updateStatusEl.textContent = `Downloading... ${pct}%`;
+    } else {
+      updateStatusEl.textContent = `Downloading... ${(downloaded / 1024 / 1024).toFixed(1)} MB`;
+    }
+  });
+
+  // Silent update check on startup (delayed to not block init)
+  setTimeout(silentUpdateCheck, 5000);
 }
 </script>
 </body>
