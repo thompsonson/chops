@@ -57,7 +57,7 @@ jobs:
       - name: Add Android permissions
         run: |
           MANIFEST=app/src-tauri/gen/android/app/src/main/AndroidManifest.xml
-          sed -i '/<manifest/a\    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.INTERNET" />' "$MANIFEST"
+          sed -i '/<manifest/a\    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />' "$MANIFEST"
 
       - name: Decode keystore
         run: echo "${{ secrets.ANDROID_KEYSTORE }}" | base64 -d > /tmp/chops-release.jks

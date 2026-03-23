@@ -38,6 +38,27 @@ See **[docs/commands.md](docs/commands.md)** for the full command reference.
 | `crates/web-ui` | HTTPS web dashboard with mic input, session management, tmux viewer |
 | `app/` | Tauri v2 desktop/mobile app with offline whisper-rs STT |
 
+## Install
+
+Download the latest build from [Releases](../../releases):
+
+| Platform | Format | Notes |
+|----------|--------|-------|
+| **Android** | `.apk` | Install directly or use [Obtainium](https://obtainium.imranr.dev/) for auto-updates |
+| **macOS** | `.dmg` | Open, drag to Applications |
+| **Linux** | `.AppImage` | `chmod +x chops_*.AppImage && ./chops_*.AppImage` |
+| **Linux** | `.deb` | `sudo dpkg -i chops_*.deb` (Debian/Ubuntu) |
+
+After installing, download the whisper model (~142MB):
+
+```bash
+mkdir -p ~/.local/share/chops
+curl -Lo ~/.local/share/chops/ggml-base.en.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
+```
+
+The app shows a banner if the model is missing.
+
 ## Quick Start
 
 ```bash
