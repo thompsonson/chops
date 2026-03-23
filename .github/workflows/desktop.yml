@@ -104,8 +104,7 @@ jobs:
           name: ${{ matrix.artifact }}
           path: |
             app/src-tauri/target/release/bundle/appimage/*.AppImage
-            app/src-tauri/target/release/bundle/appimage/*.AppImage.tar.gz
-            app/src-tauri/target/release/bundle/appimage/*.AppImage.tar.gz.sig
+            app/src-tauri/target/release/bundle/appimage/*.AppImage.sig
             app/src-tauri/target/release/bundle/deb/*.deb
           if-no-files-found: error
 
@@ -121,7 +120,7 @@ jobs:
       - name: Collect release files
         run: |
           mkdir -p release-files
-          find artifacts -type f \( -name '*.dmg' -o -name '*.AppImage' -o -name '*.AppImage.tar.gz' -o -name '*.AppImage.tar.gz.sig' -o -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' -o -name '*.deb' \) | \
+          find artifacts -type f \( -name '*.dmg' -o -name '*.AppImage' -o -name '*.AppImage.sig' -o -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' -o -name '*.deb' \) | \
             xargs -I{} cp {} release-files/
           ls -la release-files/
 
@@ -132,7 +131,7 @@ jobs:
             VERSION="${GITHUB_REF#refs/tags/v}"
           else
             # Dev build — extract version from artifact name
-            VERSION=$(ls release-files/*.AppImage.tar.gz 2>/dev/null | head -1 | grep -oP '\d+\.\d+\.\d+-dev\.\d+' || echo "0.1.0-dev")
+            VERSION=$(ls release-files/*.AppImage 2>/dev/null | head -1 | grep -oP '\d+\.\d+\.\d+-dev\.\d+' || echo "0.1.0-dev")
           fi
 
           REPO_URL="https://github.com/${{ github.repository }}"
@@ -152,7 +151,7 @@ jobs:
           LINUX_URL=""
           MACOS_URL=""
 
-          for f in release-files/*.AppImage.tar.gz.sig; do
+          for f in release-files/*.AppImage.sig; do
             [ -f "$f" ] && LINUX_SIG=$(cat "$f")
             LINUX_BUNDLE=$(basename "${f%.sig}")
             LINUX_URL="$DL_BASE/$LINUX_BUNDLE"
