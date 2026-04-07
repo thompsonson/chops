@@ -1,4 +1,4 @@
-use axum::extract::Query;
+use axum::extract::{DefaultBodyLimit, Multipart, Query};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
@@ -6,9 +6,11 @@ use axum::Router;
 use serde::Deserialize;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::time::Duration;
+use tempfile::NamedTempFile;
 use tokio::process::Command;
 use tower_http::services::ServeDir;
-use tracing::info;
+use tracing::{info, warn};
 
 fn env_or(key: &str, default: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| default.to_string())
@@ -162,6 +164,114 @@ async fn api_stop_session(Query(params): Query<SessionParams>) -> impl IntoRespo
     }
 }
 
+/// POST /api/transcribe — accept audio upload, transcribe with whisper.cpp.
+async fn api_transcribe(mut multipart: Multipart) -> impl IntoResponse {
+    // Extract audio data from multipart form
+    let mut audio_data: Option<Vec<u8>> = None;
+    while let Ok(Some(field)) = multipart.next_field().await {
+        if field.name() == Some("audio") {
+            match field.bytes().await {
+                Ok(bytes) => audio_data = Some(bytes.to_vec()),
+                Err(e) => return json_err(&format!("Failed to read audio: {e}")),
+            }
+        }
+    }
+
+    let audio_data = match audio_data {
+        Some(d) if !d.is_empty() => d,
+        _ => return json_bad("No audio data in request"),
+    };
+
+    // Write audio to temp file
+    let audio_file = match NamedTempFile::new() {
+        Ok(f) => f,
+        Err(e) => return json_err(&format!("Failed to create temp file: {e}")),
+    };
+    if let Err(e) = tokio::fs::write(audio_file.path(), &audio_data).await {
+        return json_err(&format!("Failed to write audio: {e}"));
+    }
+
+    // Convert to 16kHz mono WAV via ffmpeg
+    let wav_file = match NamedTempFile::new() {
+        Ok(f) => f,
+        Err(e) => return json_err(&format!("Failed to create temp file: {e}")),
+    };
+
+    let ffmpeg_result = tokio::time::timeout(
+        Duration::from_secs(30),
+        Command::new("ffmpeg")
+            .args([
+                "-y",
+                "-i",
+                &audio_file.path().to_string_lossy(),
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
+                "-f",
+                "wav",
+                &wav_file.path().to_string_lossy(),
+            ])
+            .output(),
+    )
+    .await;
+
+    match ffmpeg_result {
+        Ok(Ok(output)) if output.status.success() => {}
+        Ok(Ok(output)) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            warn!("ffmpeg failed: {stderr}");
+            return json_err(&format!("Audio conversion failed: {stderr}"));
+        }
+        Ok(Err(e)) => return json_err(&format!("ffmpeg not found or failed to start: {e}")),
+        Err(_) => return json_err("Audio conversion timed out"),
+    }
+
+    // Run whisper.cpp transcription
+    let whisper_bin = env_or("CHOPS_WHISPER_BIN", "whisper-cpp");
+    let whisper_model = env_or("CHOPS_WHISPER_MODEL", "models/ggml-base.en.bin");
+
+    let whisper_result = tokio::time::timeout(
+        Duration::from_secs(60),
+        Command::new(&whisper_bin)
+            .args([
+                "-m",
+                &whisper_model,
+                "-f",
+                &wav_file.path().to_string_lossy(),
+                "--no-timestamps",
+            ])
+            .output(),
+    )
+    .await;
+
+    let text = match whisper_result {
+        Ok(Ok(output)) if output.status.success() => {
+            String::from_utf8_lossy(&output.stdout).trim().to_string()
+        }
+        Ok(Ok(output)) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            warn!("whisper failed: {stderr}");
+            return json_err(&format!("Transcription failed: {stderr}"));
+        }
+        Ok(Err(e)) => {
+            return json_err(&format!(
+                "Whisper binary '{whisper_bin}' not found or failed to start: {e}"
+            ))
+        }
+        Err(_) => return json_err("Transcription timed out (60s limit)"),
+    };
+
+    let timestamp = chrono::Utc::now().to_rfc3339();
+    let response = serde_json::json!({
+        "text": text,
+        "is_final": true,
+        "timestamp": timestamp
+    });
+
+    json_ok(response.to_string())
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
@@ -187,6 +297,8 @@ async fn main() {
         .route("/api/sessions/switch", post(api_switch_session))
         .route("/api/sessions/start", post(api_start_session))
         .route("/api/sessions/stop", post(api_stop_session))
+        .route("/api/transcribe", post(api_transcribe))
+        .layer(DefaultBodyLimit::max(50 * 1024 * 1024)) // 50MB for audio uploads
         .fallback_service(ServeDir::new(&web_dir));
 
     let has_tls = PathBuf::from(&cert_path).exists() && PathBuf::from(&key_path).exists();
