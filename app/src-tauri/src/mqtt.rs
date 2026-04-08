@@ -13,6 +13,9 @@ const TRANSCRIPTION_TOPIC: &str = "voice/transcriptions";
 const SUB_RESPONSES: &str = "agent/responses";
 const SUB_COMMANDS: &str = "agent/commands/#";
 const SUB_STATUS: &str = "plugins/status/#";
+const SUB_INTENT_RESPONSE: &str = "agent/intent/response";
+const SUB_WORKFLOW_EVENTS: &str = "agent/workflow/events";
+const SUB_WORKFLOW_ESCALATION: &str = "agent/workflow/escalation";
 
 #[derive(Clone, Serialize)]
 pub struct MqttMessage {
@@ -107,6 +110,25 @@ async fn drive_eventloop(mut eventloop: EventLoop, app: AppHandle) {
                 let topic = publish.topic.clone();
                 let payload = String::from_utf8_lossy(&publish.payload).to_string();
 
+                // Fire native notification for escalations
+                if topic == SUB_WORKFLOW_ESCALATION {
+                    if let Ok(esc) = serde_json::from_str::<serde_json::Value>(&payload) {
+                        let feedback = esc
+                            .get("feedback")
+                            .and_then(|f| f.as_str())
+                            .unwrap_or("Escalation");
+                        let workflow = esc
+                            .get("workflow")
+                            .and_then(|w| w.as_str())
+                            .unwrap_or("unknown");
+                        fire_notification(
+                            &app,
+                            "ESCALATION",
+                            &format!("{workflow}: {feedback}"),
+                        );
+                    }
+                }
+
                 // Fire native notification for toast messages on agent/responses
                 if topic == SUB_RESPONSES {
                     if let Ok(msg) = serde_json::from_str::<serde_json::Value>(&payload) {
@@ -153,7 +175,16 @@ async fn subscribe_topics(app: &AppHandle) -> Result<()> {
         client.subscribe(SUB_RESPONSES, QoS::AtMostOnce).await?;
         client.subscribe(SUB_COMMANDS, QoS::AtMostOnce).await?;
         client.subscribe(SUB_STATUS, QoS::AtMostOnce).await?;
-        info!("Subscribed to {SUB_RESPONSES}, {SUB_COMMANDS}, {SUB_STATUS}");
+        client
+            .subscribe(SUB_INTENT_RESPONSE, QoS::AtLeastOnce)
+            .await?;
+        client
+            .subscribe(SUB_WORKFLOW_EVENTS, QoS::AtMostOnce)
+            .await?;
+        client
+            .subscribe(SUB_WORKFLOW_ESCALATION, QoS::AtLeastOnce)
+            .await?;
+        info!("Subscribed to MQTT topics including AtomicGuard");
     }
     Ok(())
 }

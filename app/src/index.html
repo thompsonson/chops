@@ -366,6 +366,69 @@ if (!window.__TAURI_INTERNALS__) {
     90% { opacity: 1; }
     100% { opacity: 0; }
   }
+
+  /* Escalation banner */
+  .escalation-banner {
+    background: #2a0a0a;
+    border: 1px solid var(--error);
+    border-radius: 6px;
+    padding: 0.6rem 0.8rem;
+    margin-bottom: 0.5rem;
+    font-size: 0.8rem;
+    color: var(--error);
+    display: none;
+    position: relative;
+  }
+  .escalation-banner.visible { display: block; }
+  .escalation-banner .dismiss {
+    position: absolute;
+    top: 0.3rem;
+    right: 0.5rem;
+    background: none;
+    border: none;
+    color: var(--error);
+    font-size: 1rem;
+    cursor: pointer;
+    padding: 0.2rem;
+  }
+
+  /* Workflow progress panel */
+  .workflow-panel {
+    margin-bottom: 0.5rem;
+    font-size: 0.75rem;
+  }
+  .workflow-panel:empty { display: none; }
+  .workflow-run {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.5rem 0.7rem;
+    margin-bottom: 0.35rem;
+  }
+  .workflow-run .wf-title {
+    font-weight: 600;
+    margin-bottom: 0.3rem;
+    color: var(--text);
+  }
+  .workflow-step {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.15rem 0;
+    color: var(--muted);
+  }
+  .workflow-step .step-icon { width: 1em; text-align: center; }
+  .workflow-step.pass { color: var(--ok); }
+  .workflow-step.fail { color: var(--error); }
+  .workflow-step.running { color: var(--text); }
+  .wf-summary {
+    margin-top: 0.3rem;
+    padding-top: 0.3rem;
+    border-top: 1px solid var(--border);
+    font-weight: 500;
+  }
+  .wf-summary.success { color: var(--ok); }
+  .wf-summary.failed { color: var(--error); }
 </style>
 </head>
 <body>
@@ -441,6 +504,12 @@ if (!window.__TAURI_INTERNALS__) {
     <button class="session-btn" id="btn-start" title="Start session" disabled>Start</button>
     <button class="session-btn session-btn-stop" id="btn-stop" title="Stop session" disabled>Stop</button>
   </div>
+
+  <div class="escalation-banner" id="escalation-banner">
+    <button class="dismiss" onclick="dismissEscalation()">&times;</button>
+    <strong>ESCALATION:</strong> <span id="escalation-text"></span>
+  </div>
+  <div class="workflow-panel" id="workflow-panel"></div>
 
   <div class="terminal-frame" id="terminal-frame">
     <iframe id="terminal-iframe" sandbox="allow-scripts allow-same-origin"></iframe>
@@ -524,6 +593,9 @@ const TOPIC_TRANSCRIPTIONS = 'voice/transcriptions';
 const TOPIC_RESPONSES = 'agent/responses';
 const TOPIC_STATUS = 'plugins/status/#';
 const TOPIC_COMMANDS = 'agent/commands/#';
+const TOPIC_WORKFLOW_EVENTS = 'agent/workflow/events';
+const TOPIC_WORKFLOW_ESCALATION = 'agent/workflow/escalation';
+const TOPIC_INTENT_RESPONSE = 'agent/intent/response';
 
 const mqttDot = document.getElementById('mqtt-dot');
 const mqttText = document.getElementById('mqtt-text');
@@ -567,6 +639,38 @@ function handleMqttMessage(topic, text) {
     } catch {
       entry = createLogEntry('ok', topic, text);
     }
+  } else if (topic === TOPIC_WORKFLOW_EVENTS) {
+    try {
+      const event = JSON.parse(text);
+      updateWorkflowPanel(event);
+      entry = createLogEntry('ok', 'workflow', `${event.workflow}: ${event.type} ${event.step || ''}`);
+    } catch {
+      entry = createLogEntry('ok', topic, text);
+    }
+  } else if (topic === TOPIC_WORKFLOW_ESCALATION) {
+    try {
+      const esc = JSON.parse(text);
+      showEscalation(esc);
+      entry = createLogEntry('error', 'escalation', `${esc.workflow}/${esc.step}: ${esc.feedback}`);
+    } catch {
+      entry = createLogEntry('error', topic, text);
+    }
+  } else if (topic === TOPIC_INTENT_RESPONSE) {
+    try {
+      const resp = JSON.parse(text);
+      if (resp.status === 'success') {
+        showToast(`Running ${resp.intent?.workflow || 'workflow'}...`, 'info');
+        entry = createLogEntry('ok', 'intent', `Running: ${resp.intent?.workflow || '?'}`);
+      } else if (resp.status === 'failed') {
+        showToast("Didn't understand that", 'warn');
+        entry = createLogEntry('error', 'intent', resp.error || 'failed');
+      } else if (resp.status === 'escalated') {
+        showToast(`Rejected: ${resp.error}`, 'error');
+        entry = createLogEntry('error', 'intent', `Rejected: ${resp.error}`);
+      }
+    } catch {
+      entry = createLogEntry('ok', topic, text);
+    }
   } else if (topic.startsWith('plugins/status/')) {
     entry = createLogEntry('ok', topic, text);
   } else if (topic.startsWith('agent/commands/')) {
@@ -604,6 +708,9 @@ function connectMqtt() {
     client.subscribe(TOPIC_RESPONSES);
     client.subscribe(TOPIC_STATUS);
     client.subscribe(TOPIC_COMMANDS);
+    client.subscribe(TOPIC_WORKFLOW_EVENTS);
+    client.subscribe(TOPIC_WORKFLOW_ESCALATION);
+    client.subscribe(TOPIC_INTENT_RESPONSE);
   });
 
   client.on('close', () => {
@@ -903,6 +1010,66 @@ function showToast(message, level) {
   }
   toastsEl.appendChild(el);
   el.addEventListener('animationend', () => el.remove());
+}
+
+// --- Workflow panel ---
+
+const workflowPanel = document.getElementById('workflow-panel');
+const escalationBanner = document.getElementById('escalation-banner');
+const escalationText = document.getElementById('escalation-text');
+const activeWorkflows = {};
+
+function updateWorkflowPanel(event) {
+  const id = event.workflow_id || event.workflow;
+
+  if (event.type === 'step_start') {
+    if (!activeWorkflows[id]) {
+      activeWorkflows[id] = { name: event.workflow, steps: {}, done: false };
+    }
+    activeWorkflows[id].steps[event.step] = 'running';
+  } else if (event.type === 'step_complete') {
+    if (activeWorkflows[id]) {
+      activeWorkflows[id].steps[event.step] = event.passed ? 'pass' : 'fail';
+    }
+  } else if (event.type === 'workflow_complete') {
+    if (activeWorkflows[id]) {
+      activeWorkflows[id].done = true;
+      activeWorkflows[id].status = event.status;
+      activeWorkflows[id].summary = event.summary;
+    }
+    setTimeout(() => {
+      delete activeWorkflows[id];
+      renderWorkflowPanel();
+    }, 10000);
+  }
+  renderWorkflowPanel();
+}
+
+function renderWorkflowPanel() {
+  workflowPanel.innerHTML = '';
+  for (const [id, wf] of Object.entries(activeWorkflows)) {
+    const div = document.createElement('div');
+    div.className = 'workflow-run';
+    let html = `<div class="wf-title">${escapeHtml(wf.name)}</div>`;
+    for (const [step, state] of Object.entries(wf.steps)) {
+      const icon = state === 'running' ? '...' : state === 'pass' ? '\u2713' : '\u2717';
+      html += `<div class="workflow-step ${state}"><span class="step-icon">${icon}</span>${escapeHtml(step)}</div>`;
+    }
+    if (wf.done && wf.summary) {
+      html += `<div class="wf-summary ${wf.status || ''}">${escapeHtml(wf.summary)}</div>`;
+    }
+    div.innerHTML = html;
+    workflowPanel.appendChild(div);
+  }
+}
+
+function showEscalation(esc) {
+  escalationText.textContent = `${esc.workflow}/${esc.step} \u2014 ${esc.feedback || esc.reason || 'Unknown'}`;
+  escalationBanner.classList.add('visible');
+}
+
+function dismissEscalation() {
+  escalationBanner.classList.remove('visible');
 }
 
 // --- Session selector ---
