@@ -15,6 +15,10 @@ use std::time::{Duration, Instant};
 use tracing::{info, warn};
 
 const TRANSCRIPTION_TOPIC: &str = "voice/transcriptions";
+const INTENT_REQUEST_TOPIC: &str = "agent/intent/request";
+const INTENT_RESPONSE_TOPIC: &str = "agent/intent/response";
+const WORKFLOW_EVENTS_TOPIC: &str = "agent/workflow/events";
+const WORKFLOW_ESCALATION_TOPIC: &str = "agent/workflow/escalation";
 
 /// Maximum time to wait for a terminator before auto-flushing an accumulated message.
 const ACCUMULATOR_TIMEOUT: Duration = Duration::from_secs(30);
@@ -98,7 +102,16 @@ async fn main() -> Result<()> {
     client
         .subscribe(TRANSCRIPTION_TOPIC, QoS::AtMostOnce)
         .await?;
-    info!("Agent subscribed to {TRANSCRIPTION_TOPIC}");
+    client
+        .subscribe(INTENT_RESPONSE_TOPIC, QoS::AtLeastOnce)
+        .await?;
+    client
+        .subscribe(WORKFLOW_EVENTS_TOPIC, QoS::AtMostOnce)
+        .await?;
+    client
+        .subscribe(WORKFLOW_ESCALATION_TOPIC, QoS::AtLeastOnce)
+        .await?;
+    info!("Agent subscribed to {TRANSCRIPTION_TOPIC} + AtomicGuard topics");
 
     let mut accumulator: Option<Accumulator> = None;
 
@@ -108,17 +121,31 @@ async fn main() -> Result<()> {
                 match event {
                     Ok(Event::Incoming(Incoming::Publish(msg))) => {
                         let payload = std::str::from_utf8(&msg.payload)?;
-                        if let Ok(transcription) = serde_json::from_str::<TranscriptionMessage>(payload) {
-                            if transcription.is_final {
-                                accumulator = handle_transcription(
-                                    &transcription.text,
-                                    &client,
-                                    &ctx,
-                                    accumulator,
-                                ).await;
+                        match msg.topic.as_str() {
+                            TRANSCRIPTION_TOPIC => {
+                                if let Ok(transcription) = serde_json::from_str::<TranscriptionMessage>(payload) {
+                                    if transcription.is_final {
+                                        accumulator = handle_transcription(
+                                            &transcription.text,
+                                            &client,
+                                            &ctx,
+                                            accumulator,
+                                        ).await;
+                                    }
+                                } else {
+                                    warn!("Failed to deserialize transcription: {payload}");
+                                }
                             }
-                        } else {
-                            warn!("Failed to deserialize transcription: {payload}");
+                            INTENT_RESPONSE_TOPIC => {
+                                handle_intent_response(&client, payload).await;
+                            }
+                            WORKFLOW_EVENTS_TOPIC => {
+                                handle_workflow_event(&client, payload).await;
+                            }
+                            WORKFLOW_ESCALATION_TOPIC => {
+                                handle_workflow_escalation(&client, payload).await;
+                            }
+                            _ => {}
                         }
                     }
                     Err(e) => {
@@ -198,8 +225,13 @@ async fn handle_transcription(
     match parse_intent(text, ctx) {
         Some(m) => handle_new_intent(m, client).await,
         None => {
-            warn!("Unhandled intent: {text}");
-            publish_response(client, "toast", "warn", &format!("Unknown command: {text}")).await;
+            info!("No regex match for '{text}', forwarding to AtomicGuard");
+            if let Err(e) = client
+                .publish(INTENT_REQUEST_TOPIC, QoS::AtLeastOnce, false, text)
+                .await
+            {
+                warn!("Failed to forward to AtomicGuard: {e}");
+            }
             None
         }
     }
@@ -262,6 +294,104 @@ async fn publish_response(client: &AsyncClient, type_: &str, level: &str, messag
         "type": type_,
         "level": level,
         "message": message,
+    });
+    let _ = client
+        .publish(
+            "agent/responses",
+            QoS::AtMostOnce,
+            false,
+            response.to_string(),
+        )
+        .await;
+}
+
+async fn handle_intent_response(client: &AsyncClient, payload: &str) {
+    let response: serde_json::Value = match serde_json::from_str(payload) {
+        Ok(v) => v,
+        Err(e) => {
+            warn!("Invalid intent response JSON: {e}");
+            return;
+        }
+    };
+    match response["status"].as_str() {
+        Some("success") => {
+            let workflow = response["intent"]["workflow"]
+                .as_str()
+                .unwrap_or("unknown");
+            info!("AtomicGuard running workflow: {workflow}");
+            publish_response(client, "toast", "info", &format!("Running {workflow}...")).await;
+        }
+        Some("failed") => {
+            let error = response["error"].as_str().unwrap_or("unknown error");
+            warn!("AtomicGuard could not parse intent: {error}");
+            publish_response(client, "toast", "warn", "I didn't understand that").await;
+        }
+        Some("escalated") => {
+            let error = response["error"].as_str().unwrap_or("unknown");
+            warn!("AtomicGuard rejected command: {error}");
+            publish_response(client, "toast", "error", &format!("Rejected: {error}")).await;
+        }
+        _ => {
+            warn!("Unknown intent response status: {payload}");
+        }
+    }
+}
+
+async fn handle_workflow_event(client: &AsyncClient, payload: &str) {
+    let event: serde_json::Value = match serde_json::from_str(payload) {
+        Ok(v) => v,
+        Err(e) => {
+            warn!("Invalid workflow event JSON: {e}");
+            return;
+        }
+    };
+    let wf = event["workflow"].as_str().unwrap_or("?");
+    let etype = event["type"].as_str().unwrap_or("?");
+    let step = event["step"].as_str().unwrap_or("?");
+    info!("Workflow event: {wf} {etype} {step}");
+
+    let response = json!({
+        "source": "atomicguard",
+        "type": "workflow_event",
+        "level": "info",
+        "message": payload,
+    });
+    let _ = client
+        .publish(
+            "agent/responses",
+            QoS::AtMostOnce,
+            false,
+            response.to_string(),
+        )
+        .await;
+}
+
+async fn handle_workflow_escalation(client: &AsyncClient, payload: &str) {
+    let esc: serde_json::Value = match serde_json::from_str(payload) {
+        Ok(v) => v,
+        Err(e) => {
+            warn!("Invalid escalation JSON: {e}");
+            return;
+        }
+    };
+    let wf = esc["workflow"].as_str().unwrap_or("?");
+    let step = esc["step"].as_str().unwrap_or("?");
+    let feedback = esc["feedback"].as_str().unwrap_or("unknown");
+    warn!("ESCALATION: {wf} step {step} — {feedback}");
+
+    publish_response(
+        client,
+        "toast",
+        "error",
+        &format!("ESCALATION: {wf}/{step} — {feedback}"),
+    )
+    .await;
+
+    let response = json!({
+        "source": "atomicguard",
+        "type": "escalation",
+        "level": "error",
+        "message": payload,
     });
     let _ = client
         .publish(
