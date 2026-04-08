@@ -315,9 +315,7 @@ async fn handle_intent_response(client: &AsyncClient, payload: &str) {
     };
     match response["status"].as_str() {
         Some("success") => {
-            let workflow = response["intent"]["workflow"]
-                .as_str()
-                .unwrap_or("unknown");
+            let workflow = response["intent"]["workflow"].as_str().unwrap_or("unknown");
             info!("AtomicGuard running workflow: {workflow}");
             publish_response(client, "toast", "info", &format!("Running {workflow}...")).await;
         }
@@ -427,5 +425,54 @@ mod tests {
         let json = r#"{"text":"hello","is_final":true,"timestamp":"2026-01-01T00:00:00Z"}"#;
         let msg: TranscriptionMessage = serde_json::from_str(json).unwrap();
         assert_eq!(msg.text, "hello");
+    }
+
+    #[test]
+    fn deserialize_intent_response_success() {
+        let json = r#"{"status":"success","intent":{"intent":"workflow","workflow":"health_check"},"attempts":1}"#;
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        assert_eq!(v["status"], "success");
+        assert_eq!(v["intent"]["workflow"], "health_check");
+    }
+
+    #[test]
+    fn deserialize_intent_response_failed() {
+        let json = r#"{"status":"failed","error":"Missing or unknown intent type"}"#;
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        assert_eq!(v["status"], "failed");
+        assert!(v["error"].as_str().unwrap().contains("unknown intent"));
+    }
+
+    #[test]
+    fn deserialize_intent_response_escalated() {
+        let json = r#"{"status":"escalated","error":"Command rejected by safety check"}"#;
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        assert_eq!(v["status"], "escalated");
+    }
+
+    #[test]
+    fn deserialize_workflow_event_step_complete() {
+        let json = r#"{"type":"step_complete","workflow":"health_check","workflow_id":"abc","step":"health","passed":true}"#;
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        assert_eq!(v["type"], "step_complete");
+        assert_eq!(v["passed"], true);
+        assert_eq!(v["workflow"], "health_check");
+    }
+
+    #[test]
+    fn deserialize_workflow_complete() {
+        let json = r#"{"type":"workflow_complete","workflow":"health_check","workflow_id":"abc","status":"success","summary":"health: PASS"}"#;
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        assert_eq!(v["type"], "workflow_complete");
+        assert_eq!(v["status"], "success");
+    }
+
+    #[test]
+    fn deserialize_escalation() {
+        let json = r#"{"type":"escalation","workflow":"restart_service","step":"restart","reason":"Invariant E3","feedback":"Unit not found"}"#;
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        assert_eq!(v["type"], "escalation");
+        assert_eq!(v["feedback"], "Unit not found");
+        assert_eq!(v["workflow"], "restart_service");
     }
 }

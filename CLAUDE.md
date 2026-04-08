@@ -116,6 +116,10 @@ Default port is **1884** (not 1883, to avoid conflict with other MQTT services).
 | `agent/commands/termux` | agent → plugin | Shell/termux commands |
 | `agent/responses` | plugin → any | Execution results |
 | `plugins/status/<name>` | plugin → any | Heartbeat |
+| `agent/intent/request` | agent → AtomicGuard | Raw text for LLM intent extraction |
+| `agent/intent/response` | AtomicGuard → agent | Parsed intent result (success/failed) |
+| `agent/workflow/events` | AtomicGuard → web-ui | Step-level workflow progress |
+| `agent/workflow/escalation` | AtomicGuard → agent | Must-deliver human-attention alerts |
 
 ## Voice Command Patterns
 
