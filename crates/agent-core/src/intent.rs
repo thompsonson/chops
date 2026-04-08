@@ -287,19 +287,13 @@ pub fn has_terminator(text: &str) -> bool {
 }
 
 /// Discover projects by scanning a directory for subdirectories containing `.git`.
+/// Delegates to dev-lib for deep scanning (up to 3 levels) with collision handling.
 pub fn discover_projects(base: &std::path::Path) -> Vec<String> {
-    let mut projects = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(base) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() && path.join(".git").exists() {
-                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    projects.push(name.to_string());
-                }
-            }
-        }
-    }
-    projects
+    let config = dev_lib::config::DevConfig::default();
+    dev_lib::discovery::discover_projects(base, &config)
+        .into_iter()
+        .map(|p| p.display_name)
+        .collect()
 }
 
 #[cfg(test)]

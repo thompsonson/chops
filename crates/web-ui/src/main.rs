@@ -16,35 +16,6 @@ fn env_or(key: &str, default: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| default.to_string())
 }
 
-/// Run `dev <args>` and return (success, stdout/stderr).
-async fn run_dev(args: &[&str]) -> Result<String, String> {
-    let home = dirs::home_dir().unwrap_or_default();
-    let dev_bin = home.join(".local/bin/dev");
-
-    let result = Command::new(dev_bin)
-        .args(args)
-        .env("TMUX_TMPDIR", "/tmp")
-        .env("HOME", &home)
-        .env(
-            "PATH",
-            format!(
-                "{}/.local/bin:{}",
-                home.display(),
-                std::env::var("PATH").unwrap_or_default()
-            ),
-        )
-        .output()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if result.status.success() {
-        Ok(String::from_utf8_lossy(&result.stdout).to_string())
-    } else {
-        let err = String::from_utf8_lossy(&result.stderr).trim().to_string();
-        Err(err)
-    }
-}
-
 fn json_ok(body: String) -> (StatusCode, [(&'static str, &'static str); 1], String) {
     (StatusCode::OK, [("content-type", "application/json")], body)
 }
@@ -81,9 +52,16 @@ fn validate_name(name: &str) -> Result<String, JsonResponse> {
 
 /// GET /api/sessions — list active sessions and available projects.
 async fn api_sessions() -> impl IntoResponse {
-    match run_dev(&["list"]).await {
-        Ok(body) => json_ok(body),
-        Err(e) => json_err(&e),
+    match tokio::task::spawn_blocking(|| {
+        let mgr = dev_lib::api::DevManager::new()?;
+        let output = mgr.list()?;
+        serde_json::to_string(&output).map_err(anyhow::Error::from)
+    })
+    .await
+    {
+        Ok(Ok(body)) => json_ok(body),
+        Ok(Err(e)) => json_err(&e.to_string()),
+        Err(e) => json_err(&e.to_string()),
     }
 }
 
@@ -124,23 +102,26 @@ async fn api_start_session(Query(params): Query<StartParams>) -> impl IntoRespon
         Err(e) => return e,
     };
 
-    let mut args = vec!["start", &project];
-    let layout_str;
-    if let Some(ref layout) = params.layout {
-        layout_str = layout.clone();
-        args.push(&layout_str);
-    }
+    let layout = params.layout.as_deref().map(|l| match l {
+        "claude" => dev_lib::config::Layout::Claude,
+        _ => dev_lib::config::Layout::Default,
+    });
 
-    match run_dev(&args).await {
-        Ok(output) => {
-            info!("Started session: {project}");
+    match tokio::task::spawn_blocking(move || {
+        let mgr = dev_lib::api::DevManager::new()?;
+        mgr.start(&project, layout)
+    })
+    .await
+    {
+        Ok(Ok(session_name)) => {
+            info!("Started session: {session_name}");
             json_ok(format!(
-                r#"{{"project":"{}","output":"{}"}}"#,
-                project,
-                output.trim()
+                r#"{{"project":"{}","output":"started"}}"#,
+                session_name
             ))
         }
-        Err(e) => json_err(&e),
+        Ok(Err(e)) => json_err(&e.to_string()),
+        Err(e) => json_err(&e.to_string()),
     }
 }
 
@@ -151,16 +132,19 @@ async fn api_stop_session(Query(params): Query<SessionParams>) -> impl IntoRespo
         Err(e) => return e,
     };
 
-    match run_dev(&["stop", &session]).await {
-        Ok(output) => {
+    match tokio::task::spawn_blocking(move || {
+        let mgr = dev_lib::api::DevManager::new()?;
+        mgr.stop(&session)?;
+        Ok::<String, anyhow::Error>(session)
+    })
+    .await
+    {
+        Ok(Ok(session)) => {
             info!("Stopped session: {session}");
-            json_ok(format!(
-                r#"{{"session":"{}","output":"{}"}}"#,
-                session,
-                output.trim()
-            ))
+            json_ok(format!(r#"{{"session":"{}","output":"stopped"}}"#, session))
         }
-        Err(e) => json_err(&e),
+        Ok(Err(e)) => json_err(&e.to_string()),
+        Err(e) => json_err(&e.to_string()),
     }
 }
 

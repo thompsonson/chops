@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 chops-common = { path = "../chops-common" }
+dev-lib = { path = "../dev-lib" }
 tokio = { version = "1", features = ["full"] }
 rumqttc = "0.25"
 serde = { version = "1", features = ["derive"] }
