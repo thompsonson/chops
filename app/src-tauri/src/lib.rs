@@ -27,19 +27,19 @@ fn mqtt_port() -> u16 {
 }
 
 #[tauri::command]
-async fn start_listening(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Result<String, String> {
-    state
-        .stt
-        .start(app, state.mqtt.clone())
-        .await
-        .map_err(|e| e.to_string())?;
-    Ok("listening".to_string())
-}
-
-#[tauri::command]
-async fn stop_listening(state: tauri::State<'_, AppState>) -> Result<String, String> {
-    state.stt.stop().await;
-    Ok("stopped".to_string())
+async fn transcribe_audio(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    samples: Vec<f32>,
+) -> Result<String, String> {
+    let stt = state.stt.clone();
+    let text = tokio::task::spawn_blocking(move || {
+        stt.transcribe(&app, &samples)
+    })
+    .await
+    .map_err(|e| format!("Task failed: {e}"))?
+    .map_err(|e| e.to_string())?;
+    Ok(text)
 }
 
 #[tauri::command]
@@ -310,8 +310,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            start_listening,
-            stop_listening,
+            transcribe_audio,
             connect_mqtt,
             send_transcription,
             get_status,
