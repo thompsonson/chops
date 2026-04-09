@@ -2,6 +2,7 @@
 
 import { IS_TAURI, tauriListen, showToast } from './app.js';
 import { handleResponse, handleWorkflowEvent, handleEscalation, handleIntentResponse } from './commands.js';
+import { appendLog, createLogEntry } from './messages.js';
 
 const TOPIC_RESPONSES = 'agent/responses';
 const TOPIC_WORKFLOW_EVENTS = 'agent/workflow/events';
@@ -9,12 +10,15 @@ const TOPIC_WORKFLOW_ESCALATION = 'agent/workflow/escalation';
 const TOPIC_INTENT_RESPONSE = 'agent/intent/response';
 
 function handleMqttMessage(topic, text) {
+  let logType = 'ok';
+
   if (topic === TOPIC_RESPONSES || topic === 'agent/responses') {
     try {
       const msg = JSON.parse(text);
       if (msg.type === 'toast') {
         showToast(msg.message, msg.level);
       }
+      if (msg.level === 'error') logType = 'error';
       handleResponse(msg);
     } catch {
       handleResponse({ message: text, source: topic });
@@ -24,14 +28,19 @@ function handleMqttMessage(topic, text) {
       handleWorkflowEvent(JSON.parse(text));
     } catch {}
   } else if (topic === TOPIC_WORKFLOW_ESCALATION) {
+    logType = 'error';
     try {
       handleEscalation(JSON.parse(text));
     } catch {}
   } else if (topic === TOPIC_INTENT_RESPONSE) {
     try {
-      handleIntentResponse(JSON.parse(text));
+      const resp = JSON.parse(text);
+      if (resp.status === 'failed' || resp.status === 'escalated') logType = 'error';
+      handleIntentResponse(resp);
     } catch {}
   }
+
+  appendLog(createLogEntry(logType, topic, text.substring(0, 500)));
 }
 
 export async function initMqtt() {

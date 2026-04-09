@@ -30,6 +30,7 @@
   <nav class="tab-bar">
     <button class="tab active" data-tab="commands">Commands</button>
     <button class="tab" data-tab="terminal">Terminal</button>
+    <button class="tab" data-tab="messages">Messages</button>
   </nav>
 
   <!-- Commands tab -->
@@ -73,6 +74,13 @@
     </div>
     <div class="terminal-frame" id="terminal-frame">
       <iframe id="terminal-iframe" sandbox="allow-scripts allow-same-origin"></iframe>
+    </div>
+  </div>
+
+  <!-- Messages tab -->
+  <div class="tab-content" id="tab-messages">
+    <div class="log" id="log">
+      <div class="empty">No messages yet.</div>
     </div>
   </div>
 

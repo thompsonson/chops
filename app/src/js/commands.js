@@ -2,6 +2,7 @@
 
 import { IS_TAURI, tauriInvoke, escapeHtml, timeNow, showToast } from './app.js';
 import { getSessionContext } from './terminal.js';
+import { appendLog, createLogEntry } from './messages.js';
 
 const conversationEl = document.getElementById('conversation');
 const cmdEl = document.getElementById('cmd');
@@ -47,6 +48,7 @@ export function sendCommand(overrideText) {
 
   // Show in conversation immediately
   addMessage('sent', escapeHtml(text), 'you');
+  appendLog(createLogEntry('sent', 'sent', text));
 
   if (IS_TAURI && tauriInvoke) {
     tauriInvoke('send_transcription', { text }).catch(e => {

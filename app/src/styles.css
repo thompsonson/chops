@@ -318,6 +318,30 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .wf-summary.success { color: var(--ok); }
 .wf-summary.failed { color: var(--error); }
 
+/* --- Messages log --- */
+
+.log {
+  overflow-y: auto;
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  padding: 0.5rem;
+}
+.log-entry {
+  padding: 0.3rem 0.4rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+.log-entry:last-child { border-bottom: none; }
+.log-entry .time { color: var(--muted); margin-right: 0.5rem; }
+.log-entry .topic { color: var(--accent); margin-right: 0.5rem; }
+.log-entry.ok .badge { color: var(--ok); }
+.log-entry.error .badge { color: var(--error); }
+.log-entry.sent { opacity: 0.7; }
+.log-entry.sent .badge { color: var(--muted); }
+
 /* Escalation in conversation */
 .msg-escalation {
   background: #2a0a0a;
