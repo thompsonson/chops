@@ -76,7 +76,6 @@ async fn send_transcription(
 async fn get_status(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
     let (model_exists, model_path) = stt::model_status(&app);
     Ok(serde_json::json!({
-        "listening": state.stt.is_listening(),
         "mqtt_connected": state.mqtt.is_connected().await,
         "model_exists": model_exists,
         "model_path": model_path,
