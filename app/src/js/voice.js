@@ -1,6 +1,7 @@
 // voice.js — Push-to-talk: Web Audio capture -> Tauri -> whisper-rs -> review popup
 
 import { IS_TAURI, tauriInvoke, showToast } from './app.js';
+import { sendCommand } from './commands.js';
 
 const micBtn = document.getElementById('mic');
 const cmdEl = document.getElementById('cmd');
@@ -8,18 +9,22 @@ const reviewPopup = document.getElementById('review-popup');
 const reviewText = document.getElementById('review-text');
 const reviewSend = document.getElementById('review-send');
 const reviewCancel = document.getElementById('review-cancel');
+const whisperDot = document.getElementById('whisper-dot');
+const whisperText = document.getElementById('whisper-text');
 
 let isRecording = false;
+let isTranscribing = false;
 let audioContext = null;
 let mediaStream = null;
 let scriptNode = null;
 let recordedSamples = [];
 let recordingStartTime = 0;
+let timerInterval = null;
 
 // --- Recording ---
 
 async function startRecording() {
-  if (isRecording) return;
+  if (isRecording || isTranscribing) return;
 
   try {
     mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -41,7 +46,7 @@ async function startRecording() {
 
   const source = audioContext.createMediaStreamSource(mediaStream);
 
-  // ScriptProcessorNode for broad WebView compatibility (AudioWorklet not always available)
+  // ScriptProcessorNode for broad WebView compatibility
   scriptNode = audioContext.createScriptProcessor(4096, 1, 1);
   recordedSamples = [];
   recordingStartTime = Date.now();
@@ -49,7 +54,6 @@ async function startRecording() {
   scriptNode.onaudioprocess = (e) => {
     if (!isRecording) return;
     const input = e.inputBuffer.getChannelData(0);
-    // Copy samples (the buffer is reused by the browser)
     recordedSamples.push(new Float32Array(input));
   };
 
@@ -58,14 +62,26 @@ async function startRecording() {
 
   isRecording = true;
   micBtn.classList.add('recording');
-  cmdEl.placeholder = 'Recording...';
+  updateRecordingTimer();
+  timerInterval = setInterval(updateRecordingTimer, 100);
+}
+
+function updateRecordingTimer() {
+  if (!isRecording) return;
+  const elapsed = (Date.now() - recordingStartTime) / 1000;
+  const secs = Math.floor(elapsed);
+  const tenths = Math.floor((elapsed - secs) * 10);
+  cmdEl.placeholder = `Recording ${secs}.${tenths}s...`;
 }
 
 async function stopRecording() {
   if (!isRecording) return;
   isRecording = false;
   micBtn.classList.remove('recording');
-  cmdEl.placeholder = 'Transcribing...';
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
 
   // Stop audio nodes
   if (scriptNode) {
@@ -81,7 +97,7 @@ async function stopRecording() {
     audioContext = null;
   }
 
-  // Flatten recorded chunks into a single Float32Array
+  // Flatten recorded chunks
   const totalLength = recordedSamples.reduce((sum, chunk) => sum + chunk.length, 0);
   const duration = totalLength / 16000;
 
@@ -100,27 +116,39 @@ async function stopRecording() {
   }
   recordedSamples = [];
 
-  // Send to Rust backend for transcription
-  if (IS_TAURI && tauriInvoke) {
-    try {
-      // Convert Float32Array to regular array for Tauri serialization
-      const samplesArray = Array.from(allSamples);
-      const text = await tauriInvoke('transcribe_audio', { samples: samplesArray });
+  // Transcribe
+  await transcribe(allSamples, duration);
+}
 
-      cmdEl.placeholder = 'run cargo test';
-
-      if (text && text !== '[BLANK_AUDIO]') {
-        showReviewPopup(text.trim());
-      } else {
-        showToast('No speech detected', 'warn');
-      }
-    } catch (e) {
-      cmdEl.placeholder = 'run cargo test';
-      showToast(`Transcription failed: ${e}`, 'error');
-    }
-  } else {
+async function transcribe(samples, duration) {
+  if (!IS_TAURI || !tauriInvoke) {
     cmdEl.placeholder = 'run cargo test';
     showToast('Voice requires the Tauri app', 'warn');
+    return;
+  }
+
+  isTranscribing = true;
+  micBtn.classList.add('transcribing');
+  cmdEl.placeholder = `Transcribing ${duration.toFixed(1)}s of audio...`;
+  whisperDot.classList.add('ok');
+  whisperText.textContent = 'whisper (transcribing)';
+
+  try {
+    const samplesArray = Array.from(samples);
+    const text = await tauriInvoke('transcribe_audio', { samples: samplesArray });
+
+    if (text && text.trim() && text.trim() !== '[BLANK_AUDIO]') {
+      showReviewPopup(text.trim());
+    } else {
+      showToast('No speech detected', 'warn');
+    }
+  } catch (e) {
+    showToast(`Transcription failed: ${e}`, 'error');
+  } finally {
+    isTranscribing = false;
+    micBtn.classList.remove('transcribing');
+    cmdEl.placeholder = 'run cargo test';
+    whisperText.textContent = 'whisper (ready)';
   }
 }
 
@@ -143,10 +171,7 @@ function sendReviewedText() {
   const text = reviewText.value.trim();
   hideReviewPopup();
   if (!text) return;
-
-  // Put into command input and trigger send
-  cmdEl.value = text;
-  document.getElementById('send').click();
+  sendCommand(text);
 }
 
 // --- Init ---

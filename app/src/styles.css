@@ -172,9 +172,19 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   animation: pulse 1.5s infinite;
 }
 .mic-btn.recording svg { fill: white; }
+.mic-btn.transcribing {
+  background: var(--surface);
+  border-color: var(--ok);
+  animation: transcribe-pulse 1s infinite;
+}
+.mic-btn.transcribing svg { fill: var(--ok); }
 @keyframes pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(233,69,96,0.4); }
   50% { box-shadow: 0 0 0 8px rgba(233,69,96,0); }
+}
+@keyframes transcribe-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(78,204,163,0.4); }
+  50% { box-shadow: 0 0 0 8px rgba(78,204,163,0); }
 }
 
 /* --- Transcription review popup --- */
@@ -242,6 +252,29 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   font-size: 0.65rem;
   color: var(--muted);
   margin-bottom: 0.2rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.msg .msg-label {
+  font-size: 0.6rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  background: rgba(255,255,255,0.05);
+}
+.msg-sent .msg-label { color: var(--accent); }
+.msg-response .msg-label { color: var(--ok); }
+.msg-error .msg-label { color: var(--error); }
+.msg-workflow .msg-label { color: var(--muted); }
+.msg-escalation .msg-label { color: var(--error); }
+.msg .msg-body {
+  line-height: 1.5;
+}
+.msg .msg-body strong {
+  font-weight: 600;
 }
 .msg-sent {
   background: rgba(233, 69, 96, 0.1);

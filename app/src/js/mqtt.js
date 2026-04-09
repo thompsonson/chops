@@ -37,11 +37,13 @@ function handleMqttMessage(topic, text) {
 export async function initMqtt() {
   if (!IS_TAURI || !tauriListen) return;
 
+  // MQTT messages from Rust subscription
   await tauriListen('mqtt-message', (event) => {
     const { topic, payload } = event.payload;
     handleMqttMessage(topic, payload);
   });
 
+  // MQTT connection status
   await tauriListen('mqtt-status', (event) => {
     const status = event.payload;
     const dot = document.getElementById('mqtt-dot');
@@ -55,22 +57,6 @@ export async function initMqtt() {
       dot.classList.remove('ok');
       text.textContent = `mqtt (${status})`;
       sendBtn.disabled = true;
-    }
-  });
-
-  await tauriListen('stt-status', (event) => {
-    const status = event.payload;
-    const dot = document.getElementById('whisper-dot');
-    const text = document.getElementById('whisper-text');
-    if (status === 'listening') {
-      dot.classList.add('ok');
-      text.textContent = 'whisper (listening)';
-    } else if (status === 'stopped') {
-      dot.classList.remove('ok');
-      text.textContent = 'whisper';
-    } else if (status === 'model_loaded') {
-      dot.classList.add('ok');
-      text.textContent = 'whisper (ready)';
     }
   });
 }

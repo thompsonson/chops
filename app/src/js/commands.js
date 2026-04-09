@@ -10,23 +10,24 @@ let firstMessage = true;
 
 // --- Conversation feed ---
 
-function addMessage(type, content) {
+function addMessage(type, content, label) {
   if (firstMessage) {
     conversationEl.innerHTML = '';
     firstMessage = false;
   }
   const div = document.createElement('div');
   div.className = `msg msg-${type}`;
-  div.innerHTML = `<div class="msg-time">${timeNow()}</div>${content}`;
+  const labelHtml = label ? `<span class="msg-label">${escapeHtml(label)}</span> ` : '';
+  div.innerHTML = `<div class="msg-time">${timeNow()} ${labelHtml}</div><div class="msg-body">${content}</div>`;
   conversationEl.appendChild(div);
   conversationEl.scrollTop = conversationEl.scrollHeight;
   return div;
 }
 
-// --- Send command ---
+// --- Send command (exported for voice.js review popup) ---
 
-function sendCommand() {
-  let text = cmdEl.value.trim();
+export function sendCommand(overrideText) {
+  let text = overrideText || cmdEl.value.trim();
   if (!text) return;
 
   // Auto-prepend session context
@@ -44,11 +45,12 @@ function sendCommand() {
     text += ' over';
   }
 
+  // Show in conversation immediately
+  addMessage('sent', escapeHtml(text), 'you');
+
   if (IS_TAURI && tauriInvoke) {
-    tauriInvoke('send_transcription', { text }).then(() => {
-      addMessage('sent', escapeHtml(text));
-    }).catch(e => {
-      addMessage('error', `Send failed: ${escapeHtml(String(e))}`);
+    tauriInvoke('send_transcription', { text }).catch(e => {
+      addMessage('error', `Send failed: ${escapeHtml(String(e))}`, 'error');
     });
   }
 
@@ -88,7 +90,6 @@ function renderWorkflow(id) {
   const wf = activeWorkflows[id];
   if (!wf) return;
 
-  // Create or update the workflow message in conversation
   if (!wf.el) {
     if (firstMessage) {
       conversationEl.innerHTML = '';
@@ -99,7 +100,8 @@ function renderWorkflow(id) {
     conversationEl.appendChild(wf.el);
   }
 
-  let html = `<div class="msg-time">${timeNow()}</div>`;
+  let html = `<div class="msg-time">${timeNow()} <span class="msg-label">workflow</span></div>`;
+  html += `<div class="msg-body">`;
   html += `<div class="wf-title">${escapeHtml(wf.name)}</div>`;
   for (const [step, state] of Object.entries(wf.steps)) {
     const icon = state === 'running' ? '...' : state === 'pass' ? '\u2713' : '\u2717';
@@ -108,6 +110,7 @@ function renderWorkflow(id) {
   if (wf.done && wf.summary) {
     html += `<div class="wf-summary ${wf.status || ''}">${escapeHtml(wf.summary)}</div>`;
   }
+  html += `</div>`;
   wf.el.innerHTML = html;
   conversationEl.scrollTop = conversationEl.scrollHeight;
 }
@@ -115,48 +118,64 @@ function renderWorkflow(id) {
 // --- Escalation ---
 
 export function handleEscalation(esc) {
-  const text = `ESCALATION: ${esc.workflow}/${esc.step} \u2014 ${esc.feedback || esc.reason || 'Unknown'}`;
-  addMessage('escalation', escapeHtml(text));
-  showToast(text, 'error');
+  const feedback = esc.feedback || esc.reason || 'Unknown';
+  addMessage('escalation',
+    `<strong>${escapeHtml(esc.workflow)}/${escapeHtml(esc.step)}</strong> &mdash; ${escapeHtml(feedback)}`,
+    'escalation'
+  );
+  showToast(`ESCALATION: ${esc.workflow}/${esc.step} — ${feedback}`, 'error');
 }
 
 // --- Response handling ---
 
 export function handleResponse(msg) {
   if (msg.type === 'toast') {
-    // Toast-only messages handled in mqtt.js
     return;
   }
+
+  // Legacy plugin-runner responses
+  if (msg.status === 'ok') {
+    const output = msg.output || 'ok';
+    const source = (msg.topic || 'agent').replace('agent/commands/', '');
+    addMessage('response', escapeHtml(output), source);
+    return;
+  }
+  if (msg.status === 'error' || msg.status === 'fail') {
+    const output = msg.error || msg.output || 'error';
+    const source = (msg.topic || 'agent').replace('agent/commands/', '');
+    addMessage('error', escapeHtml(output), source);
+    return;
+  }
+
+  // Generic responses
   const content = msg.message || msg.output || msg.error || JSON.stringify(msg);
-  const isError = msg.level === 'error' || msg.status === 'error';
-  addMessage(isError ? 'error' : 'response', escapeHtml(content));
+  const isError = msg.level === 'error';
+  const source = msg.source || 'agent';
+  addMessage(isError ? 'error' : 'response', escapeHtml(content), source);
 }
 
 // --- Intent response ---
 
 export function handleIntentResponse(resp) {
   if (resp.status === 'success') {
-    showToast(`Running ${resp.intent?.workflow || 'workflow'}...`, 'info');
-    addMessage('response', `Running: ${escapeHtml(resp.intent?.workflow || '?')}`);
+    const workflow = resp.intent?.workflow || '?';
+    addMessage('response', `Running workflow: <strong>${escapeHtml(workflow)}</strong>`, 'intent');
   } else if (resp.status === 'failed') {
+    addMessage('error', escapeHtml(resp.error || 'Command not recognized'), 'intent');
     showToast("Didn't understand that", 'warn');
-    addMessage('error', escapeHtml(resp.error || 'Command not recognized'));
   } else if (resp.status === 'escalated') {
+    addMessage('escalation',
+      `<strong>Rejected</strong> &mdash; ${escapeHtml(resp.error || 'Unknown')}`,
+      'safety'
+    );
     showToast(`Rejected: ${resp.error}`, 'error');
-    addMessage('escalation', `Rejected: ${escapeHtml(resp.error || 'Unknown')}`);
   }
-}
-
-// --- Public: add message from other modules ---
-
-export function addSentMessage(text) {
-  addMessage('sent', escapeHtml(text));
 }
 
 // --- Init ---
 
 export function initCommands() {
-  sendBtn.addEventListener('click', sendCommand);
+  sendBtn.addEventListener('click', () => sendCommand());
   cmdEl.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') sendCommand();
   });
