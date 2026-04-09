@@ -15,7 +15,7 @@
   <!-- Scale the design to fit within the safe zone (~66% of 512 = 338px)
        Translate to center: (512-338)/2 = 87px offset
        Scale factor: 338/512 = 0.66 -->
-  <g transform="translate(87, 60) scale(0.66)">
+  <g transform="translate(81, 80) scale(0.66)">
     <!-- Speech bubble body -->
     <path d="M 140 130
              Q 140 105, 170 105
