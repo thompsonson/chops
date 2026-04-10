@@ -18,6 +18,17 @@ const WORKFLOW_ESCALATION_TOPIC: &str = "agent/workflow/escalation";
 struct TranscriptionMessage {
     text: String,
     is_final: bool,
+    #[serde(default)]
+    conversation_id: Option<String>,
+}
+
+fn generate_conversation_id() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_micros();
+    format!("conv-{ts:x}")
 }
 
 #[tokio::main]
@@ -57,9 +68,21 @@ async fn main() -> Result<()> {
                                 if text.is_empty() {
                                     continue;
                                 }
-                                info!("Forwarding to AtomicGuard: '{text}'");
+                                let conv_id = transcription
+                                    .conversation_id
+                                    .unwrap_or_else(generate_conversation_id);
+                                info!("Forwarding to AtomicGuard [{conv_id}]: '{text}'");
+                                let request = json!({
+                                    "text": text,
+                                    "conversation_id": conv_id,
+                                });
                                 if let Err(e) = client
-                                    .publish(INTENT_REQUEST_TOPIC, QoS::AtLeastOnce, false, text)
+                                    .publish(
+                                        INTENT_REQUEST_TOPIC,
+                                        QoS::AtLeastOnce,
+                                        false,
+                                        request.to_string(),
+                                    )
                                     .await
                                 {
                                     warn!("Failed to forward to AtomicGuard: {e}");
@@ -220,6 +243,28 @@ mod tests {
         let json = r#"{"text":"hel","is_final":false}"#;
         let msg: TranscriptionMessage = serde_json::from_str(json).unwrap();
         assert!(!msg.is_final);
+    }
+
+    #[test]
+    fn deserialize_transcription_with_conversation_id() {
+        let json = r#"{"text":"check system","is_final":true,"conversation_id":"conv-abc123"}"#;
+        let msg: TranscriptionMessage = serde_json::from_str(json).unwrap();
+        assert_eq!(msg.conversation_id.as_deref(), Some("conv-abc123"));
+    }
+
+    #[test]
+    fn deserialize_transcription_without_conversation_id() {
+        let json = r#"{"text":"check system","is_final":true}"#;
+        let msg: TranscriptionMessage = serde_json::from_str(json).unwrap();
+        assert!(msg.conversation_id.is_none());
+    }
+
+    #[test]
+    fn generate_conversation_id_is_unique() {
+        let a = generate_conversation_id();
+        let b = generate_conversation_id();
+        assert_ne!(a, b);
+        assert!(a.starts_with("conv-"));
     }
 
     #[test]
