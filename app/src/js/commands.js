@@ -9,18 +9,43 @@ const cmdEl = document.getElementById('cmd');
 const sendBtn = document.getElementById('send');
 let firstMessage = true;
 
-// --- Conversation feed ---
+// --- Conversation grouping ---
 
-export function addMessage(type, content, label) {
+const conversationGroups = new Map(); // conversation_id → DOM element
+
+function ensureReady() {
   if (firstMessage) {
     conversationEl.innerHTML = '';
     firstMessage = false;
   }
+}
+
+function getGroupEl(conversationId) {
+  if (!conversationId) return null;
+  return conversationGroups.get(conversationId) || null;
+}
+
+function createGroup(conversationId) {
+  ensureReady();
+  const group = document.createElement('div');
+  group.className = 'conversation-group';
+  group.dataset.convId = conversationId;
+  conversationEl.appendChild(group);
+  conversationGroups.set(conversationId, group);
+  return group;
+}
+
+// --- Conversation feed ---
+
+export function addMessage(type, content, label, conversationId) {
+  ensureReady();
   const div = document.createElement('div');
   div.className = `msg msg-${type}`;
   const labelHtml = label ? `<span class="msg-label">${escapeHtml(label)}</span> ` : '';
   div.innerHTML = `<div class="msg-time">${timeNow()} ${labelHtml}</div><div class="msg-body">${content}</div>`;
-  conversationEl.appendChild(div);
+
+  const parent = getGroupEl(conversationId) || conversationEl;
+  parent.appendChild(div);
   conversationEl.scrollTop = conversationEl.scrollHeight;
   return div;
 }
@@ -48,14 +73,15 @@ export function sendCommand(overrideText) {
 
   // Generate conversation ID for message correlation
   const conversationId = `conv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  createGroup(conversationId);
 
   // Show in conversation immediately
-  addMessage('sent', escapeHtml(text), 'you');
+  addMessage('sent', escapeHtml(text), 'you', conversationId);
   appendLog(createLogEntry('sent', 'sent', text));
 
   if (IS_TAURI && tauriInvoke) {
     tauriInvoke('send_transcription', { text, conversationId }).catch(e => {
-      addMessage('error', `Send failed: ${escapeHtml(String(e))}`, 'error');
+      addMessage('error', `Send failed: ${escapeHtml(String(e))}`, 'error', conversationId);
     });
   }
 
@@ -69,22 +95,26 @@ const activeWorkflows = {};
 
 export function handleWorkflowEvent(event) {
   const id = event.workflow_id || event.workflow;
+  const convId = event.conversation_id;
 
   if (event.type === 'step_start') {
     if (!activeWorkflows[id]) {
-      activeWorkflows[id] = { name: event.workflow, steps: {}, done: false, el: null };
+      activeWorkflows[id] = { name: event.workflow, steps: {}, done: false, el: null, convId };
     }
     activeWorkflows[id].steps[event.step] = 'running';
   } else if (event.type === 'step_complete') {
-    if (activeWorkflows[id]) {
-      activeWorkflows[id].steps[event.step] = event.passed ? 'pass' : 'fail';
+    if (!activeWorkflows[id]) {
+      activeWorkflows[id] = { name: event.workflow, steps: {}, done: false, el: null, convId };
     }
+    activeWorkflows[id].steps[event.step] = event.passed ? 'pass' : 'fail';
   } else if (event.type === 'workflow_complete') {
-    if (activeWorkflows[id]) {
-      activeWorkflows[id].done = true;
-      activeWorkflows[id].status = event.status;
-      activeWorkflows[id].summary = event.summary;
+    if (!activeWorkflows[id]) {
+      activeWorkflows[id] = { name: event.workflow, steps: {}, done: false, el: null, convId };
     }
+    activeWorkflows[id].done = true;
+    activeWorkflows[id].status = event.status;
+    activeWorkflows[id].summary = event.summary;
+    activeWorkflows[id].humanSummary = event.human_summary;
     setTimeout(() => { delete activeWorkflows[id]; }, 30000);
   }
 
@@ -96,13 +126,11 @@ function renderWorkflow(id) {
   if (!wf) return;
 
   if (!wf.el) {
-    if (firstMessage) {
-      conversationEl.innerHTML = '';
-      firstMessage = false;
-    }
+    ensureReady();
     wf.el = document.createElement('div');
     wf.el.className = 'msg msg-workflow';
-    conversationEl.appendChild(wf.el);
+    const parent = getGroupEl(wf.convId) || conversationEl;
+    parent.appendChild(wf.el);
   }
 
   let html = `<div class="msg-time">${timeNow()} <span class="msg-label">workflow</span></div>`;
@@ -112,8 +140,11 @@ function renderWorkflow(id) {
     const icon = state === 'running' ? '...' : state === 'pass' ? '\u2713' : '\u2717';
     html += `<div class="workflow-step ${state}"><span class="step-icon">${icon}</span>${escapeHtml(step)}</div>`;
   }
-  if (wf.done && wf.summary) {
-    html += `<div class="wf-summary ${wf.status || ''}">${escapeHtml(wf.summary)}</div>`;
+  if (wf.done) {
+    const display = wf.humanSummary || wf.summary;
+    if (display) {
+      html += `<div class="wf-summary ${wf.status || ''}">${escapeHtml(display)}</div>`;
+    }
   }
   html += `</div>`;
   wf.el.innerHTML = html;
@@ -126,7 +157,8 @@ export function handleEscalation(esc) {
   const feedback = esc.feedback || esc.reason || 'Unknown';
   addMessage('escalation',
     `<strong>${escapeHtml(esc.workflow)}/${escapeHtml(esc.step)}</strong> &mdash; ${escapeHtml(feedback)}`,
-    'escalation'
+    'escalation',
+    esc.conversation_id
   );
   showToast(`ESCALATION: ${esc.workflow}/${esc.step} — ${feedback}`, 'error');
 }
@@ -164,14 +196,15 @@ export function handleResponse(msg) {
 export function handleIntentResponse(resp) {
   if (resp.status === 'success') {
     const workflow = resp.intent?.workflow || '?';
-    addMessage('response', `Running workflow: <strong>${escapeHtml(workflow)}</strong>`, 'intent');
+    addMessage('response', `Running workflow: <strong>${escapeHtml(workflow)}</strong>`, 'intent', resp.conversation_id);
   } else if (resp.status === 'failed') {
-    addMessage('error', escapeHtml(resp.error || 'Command not recognized'), 'intent');
+    addMessage('error', escapeHtml(resp.error || 'Command not recognized'), 'intent', resp.conversation_id);
     showToast("Didn't understand that", 'warn');
   } else if (resp.status === 'escalated') {
     addMessage('escalation',
       `<strong>Rejected</strong> &mdash; ${escapeHtml(resp.error || 'Unknown')}`,
-      'safety'
+      'safety',
+      resp.conversation_id
     );
     showToast(`Rejected: ${resp.error}`, 'error');
   }
@@ -182,6 +215,7 @@ export function handleIntentResponse(resp) {
 export function clearConversation() {
   conversationEl.innerHTML = '<div class="empty">No messages yet. Type a command or hold the mic to speak.</div>';
   firstMessage = true;
+  conversationGroups.clear();
 }
 
 export function copyAllMessages() {

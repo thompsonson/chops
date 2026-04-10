@@ -32,6 +32,11 @@ function handleMqttMessage(topic, text) {
       if (msg.type === 'toast') {
         showToast(msg.message, msg.level);
       }
+      // Skip workflow events/escalations re-published by agent-core — we get them directly
+      if (msg.type === 'workflow_event' || msg.type === 'escalation') {
+        appendLog(createLogEntry('ok', topic, text.substring(0, 500)));
+        return;
+      }
       if (msg.level === 'error') logType = 'error';
       handleResponse(msg);
     } catch {

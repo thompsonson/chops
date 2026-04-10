@@ -309,6 +309,16 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   font-size: 0.8rem;
 }
 
+/* Conversation groups */
+.conversation-group {
+  margin-bottom: 0.75rem;
+  border-left: 2px solid var(--border);
+  padding-left: 0.5rem;
+}
+.conversation-group .msg {
+  margin-bottom: 0.25rem;
+}
+
 .msg {
   padding: 0.5rem 0.6rem;
   border-radius: 6px;
