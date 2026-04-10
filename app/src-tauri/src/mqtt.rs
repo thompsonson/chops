@@ -16,6 +16,7 @@ const SUB_STATUS: &str = "plugins/status/#";
 const SUB_INTENT_RESPONSE: &str = "agent/intent/response";
 const SUB_WORKFLOW_EVENTS: &str = "agent/workflow/events";
 const SUB_WORKFLOW_ESCALATION: &str = "agent/workflow/escalation";
+const PING_TOPIC: &str = "agent/ping";
 
 #[derive(Clone, Serialize)]
 pub struct MqttMessage {
@@ -80,6 +81,26 @@ impl MqttClient {
             info!("Published transcription: {text}");
         }
         Ok(())
+    }
+
+    pub async fn publish_ping(&self) -> Result<u64> {
+        let guard = self.client.lock().await;
+        let client = guard
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("MQTT not connected"))?;
+
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        let payload = json!({ "ping": ts });
+        client
+            .publish(PING_TOPIC, QoS::AtLeastOnce, false, payload.to_string())
+            .await?;
+
+        info!("Published ping: {ts}");
+        Ok(ts)
     }
 
     pub async fn is_connected(&self) -> bool {
@@ -184,7 +205,8 @@ async fn subscribe_topics(app: &AppHandle) -> Result<()> {
         client
             .subscribe(SUB_WORKFLOW_ESCALATION, QoS::AtLeastOnce)
             .await?;
-        info!("Subscribed to MQTT topics including AtomicGuard");
+        client.subscribe(PING_TOPIC, QoS::AtMostOnce).await?;
+        info!("Subscribed to MQTT topics including AtomicGuard + ping");
     }
     Ok(())
 }

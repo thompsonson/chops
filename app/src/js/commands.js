@@ -11,7 +11,7 @@ let firstMessage = true;
 
 // --- Conversation feed ---
 
-function addMessage(type, content, label) {
+export function addMessage(type, content, label) {
   if (firstMessage) {
     conversationEl.innerHTML = '';
     firstMessage = false;

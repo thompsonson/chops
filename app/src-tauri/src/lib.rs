@@ -73,6 +73,15 @@ async fn send_transcription(
 }
 
 #[tauri::command]
+async fn mqtt_ping(state: tauri::State<'_, AppState>) -> Result<u64, String> {
+    state
+        .mqtt
+        .publish_ping()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn get_status(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
     let (model_exists, model_path) = stt::model_status(&app);
     Ok(serde_json::json!({
@@ -312,6 +321,7 @@ pub fn run() {
             transcribe_audio,
             connect_mqtt,
             send_transcription,
+            mqtt_ping,
             get_status,
             set_model_path,
             get_model_path,
