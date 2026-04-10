@@ -55,7 +55,12 @@ impl MqttClient {
         Ok(())
     }
 
-    pub async fn publish_transcription(&self, text: &str, is_final: bool) -> Result<()> {
+    pub async fn publish_transcription(
+        &self,
+        text: &str,
+        is_final: bool,
+        conversation_id: &str,
+    ) -> Result<()> {
         let guard = self.client.lock().await;
         let client = guard
             .as_ref()
@@ -64,6 +69,7 @@ impl MqttClient {
         let payload = json!({
             "text": text,
             "is_final": is_final,
+            "conversation_id": conversation_id,
             "timestamp": chrono::Utc::now().to_rfc3339(),
             "source": "tauri-app",
         });
@@ -78,7 +84,7 @@ impl MqttClient {
             .await?;
 
         if is_final {
-            info!("Published transcription: {text}");
+            info!("Published transcription [{conversation_id}]: {text}");
         }
         Ok(())
     }

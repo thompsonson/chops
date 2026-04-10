@@ -59,17 +59,27 @@ async fn connect_mqtt(
     Ok(format!("connected to {host}:{port}"))
 }
 
+fn generate_conversation_id() -> String {
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_micros();
+    format!("conv-{ts:x}")
+}
+
 #[tauri::command]
 async fn send_transcription(
     state: tauri::State<'_, AppState>,
     text: String,
+    conversation_id: Option<String>,
 ) -> Result<String, String> {
+    let conv_id = conversation_id.unwrap_or_else(generate_conversation_id);
     state
         .mqtt
-        .publish_transcription(&text, true)
+        .publish_transcription(&text, true, &conv_id)
         .await
         .map_err(|e| e.to_string())?;
-    Ok("sent".to_string())
+    Ok(conv_id)
 }
 
 #[tauri::command]

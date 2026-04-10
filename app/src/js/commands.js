@@ -46,12 +46,15 @@ export function sendCommand(overrideText) {
     text += ' over';
   }
 
+  // Generate conversation ID for message correlation
+  const conversationId = `conv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+
   // Show in conversation immediately
   addMessage('sent', escapeHtml(text), 'you');
   appendLog(createLogEntry('sent', 'sent', text));
 
   if (IS_TAURI && tauriInvoke) {
-    tauriInvoke('send_transcription', { text }).catch(e => {
+    tauriInvoke('send_transcription', { text, conversationId }).catch(e => {
       addMessage('error', `Send failed: ${escapeHtml(String(e))}`, 'error');
     });
   }
