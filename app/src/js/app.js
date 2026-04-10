@@ -1,6 +1,6 @@
 // app.js — Main entry point, init, tab switching, settings, helpers
 
-import { initMqtt } from './mqtt.js';
+import { initMqtt, pingMqtt } from './mqtt.js';
 import { initCommands } from './commands.js';
 import { initTerminal } from './terminal.js';
 import { initVoice } from './voice.js';
@@ -270,6 +270,8 @@ initMqtt();
 initCommands();
 initTerminal();
 initVoice();
+
+document.getElementById('btn-ping')?.addEventListener('click', pingMqtt);
 
 if (IS_TAURI) {
   checkStatus();

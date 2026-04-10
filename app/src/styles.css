@@ -76,6 +76,24 @@ header h1 { font-size: 1.25rem; font-weight: 600; }
 .gear-btn svg { fill: var(--muted); width: 18px; height: 18px; }
 .gear-btn:hover svg { fill: var(--text); }
 
+/* Ping button */
+.ping-btn {
+  padding: 0.15rem 0.5rem;
+  font-size: 0.6rem;
+  font-family: inherit;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--muted);
+  cursor: pointer;
+  margin-left: 0.25rem;
+}
+.ping-btn:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
+.ping-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
 /* --- Tabs --- */
 
 .tab-bar {
