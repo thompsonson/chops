@@ -174,6 +174,21 @@ export function handleIntentResponse(resp) {
   }
 }
 
+// --- Clear / Copy ---
+
+export function clearConversation() {
+  conversationEl.innerHTML = '<div class="empty">No messages yet. Type a command or hold the mic to speak.</div>';
+  firstMessage = true;
+}
+
+export function copyAllMessages() {
+  const msgs = conversationEl.querySelectorAll('.msg');
+  const lines = Array.from(msgs).map(m => m.textContent.trim());
+  navigator.clipboard.writeText(lines.join('\n')).then(() => {
+    showToast('Copied to clipboard', 'ok');
+  });
+}
+
 // --- Init ---
 
 export function initCommands() {

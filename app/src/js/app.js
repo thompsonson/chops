@@ -1,9 +1,10 @@
 // app.js — Main entry point, init, tab switching, settings, helpers
 
 import { initMqtt, pingMqtt } from './mqtt.js';
-import { initCommands } from './commands.js';
+import { initCommands, clearConversation, copyAllMessages } from './commands.js';
 import { initTerminal } from './terminal.js';
 import { initVoice } from './voice.js';
+import { clearLog, copyAllLog } from './messages.js';
 
 // --- Tauri interop ---
 
@@ -88,18 +89,103 @@ export function showToast(message, level) {
 
 // --- Tab switching ---
 
+let activeTab = 'commands';
+
 function initTabs() {
   const tabs = document.querySelectorAll('.tab');
   const contents = document.querySelectorAll('.tab-content');
+  const tabActions = document.getElementById('tab-actions');
 
   tabs.forEach(tab => {
     tab.addEventListener('click', () => {
       const target = tab.dataset.tab;
+      activeTab = target;
       tabs.forEach(t => t.classList.remove('active'));
       contents.forEach(c => c.classList.remove('active'));
       tab.classList.add('active');
       document.getElementById(`tab-${target}`).classList.add('active');
+      // Show actions for commands/messages, hide for terminal
+      tabActions.classList.toggle('hidden', target === 'terminal');
     });
+  });
+}
+
+// --- Tab action buttons ---
+
+function initTabActions() {
+  const btnClear = document.getElementById('btn-clear');
+  const btnCopyAll = document.getElementById('btn-copy-all');
+
+  btnClear.addEventListener('click', () => {
+    if (activeTab === 'commands') clearConversation();
+    else if (activeTab === 'messages') clearLog();
+  });
+
+  btnCopyAll.addEventListener('click', () => {
+    if (activeTab === 'commands') copyAllMessages();
+    else if (activeTab === 'messages') copyAllLog();
+  });
+}
+
+// --- Copy context menu ---
+
+function initCopyMenu() {
+  const menu = document.getElementById('copy-menu');
+  const menuBtn = document.getElementById('copy-menu-btn');
+  let copyTarget = null;
+  let longPressTimer = null;
+
+  function showMenu(x, y, el) {
+    copyTarget = el;
+    menu.style.left = `${Math.min(x, window.innerWidth - 120)}px`;
+    menu.style.top = `${Math.min(y, window.innerHeight - 40)}px`;
+    menu.classList.add('visible');
+  }
+
+  function hideMenu() {
+    menu.classList.remove('visible');
+    copyTarget = null;
+  }
+
+  menuBtn.addEventListener('click', () => {
+    if (copyTarget) {
+      const body = copyTarget.querySelector('.msg-body') || copyTarget;
+      navigator.clipboard.writeText(body.textContent.trim()).then(() => {
+        showToast('Copied', 'ok');
+      });
+    }
+    hideMenu();
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!menu.contains(e.target)) hideMenu();
+  });
+
+  // Desktop: right-click on messages/log entries
+  document.addEventListener('contextmenu', (e) => {
+    const msg = e.target.closest('.msg, .log-entry');
+    if (msg) {
+      e.preventDefault();
+      showMenu(e.clientX, e.clientY, msg);
+    }
+  });
+
+  // Android: long-press on messages/log entries
+  document.addEventListener('touchstart', (e) => {
+    const msg = e.target.closest('.msg, .log-entry');
+    if (!msg) return;
+    longPressTimer = setTimeout(() => {
+      const touch = e.touches[0];
+      showMenu(touch.clientX, touch.clientY, msg);
+    }, 500);
+  }, { passive: true });
+
+  document.addEventListener('touchend', () => {
+    clearTimeout(longPressTimer);
+  });
+
+  document.addEventListener('touchmove', () => {
+    clearTimeout(longPressTimer);
   });
 }
 
@@ -265,6 +351,8 @@ async function silentUpdateCheck() {
 // --- Init ---
 
 initTabs();
+initTabActions();
+initCopyMenu();
 initSettings();
 initMqtt();
 initCommands();

@@ -1,6 +1,6 @@
 // messages.js — Raw MQTT message log for debugging
 
-import { escapeHtml, timeNow } from './app.js';
+import { escapeHtml, timeNow, showToast } from './app.js';
 
 const logEl = document.getElementById('log');
 let firstMessage = true;
@@ -23,4 +23,17 @@ export function appendLog(entry) {
   }
   logEl.appendChild(entry);
   logEl.scrollTop = logEl.scrollHeight;
+}
+
+export function clearLog() {
+  logEl.innerHTML = '<div class="empty">No messages yet.</div>';
+  firstMessage = true;
+}
+
+export function copyAllLog() {
+  const entries = logEl.querySelectorAll('.log-entry');
+  const lines = Array.from(entries).map(e => e.textContent.trim());
+  navigator.clipboard.writeText(lines.join('\n')).then(() => {
+    showToast('Copied to clipboard', 'ok');
+  });
 }
