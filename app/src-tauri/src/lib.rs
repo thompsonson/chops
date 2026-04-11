@@ -92,6 +92,33 @@ async fn mqtt_ping(state: tauri::State<'_, AppState>) -> Result<u64, String> {
 }
 
 #[tauri::command]
+async fn escalation_respond(
+    state: tauri::State<'_, AppState>,
+    workflow_id: String,
+    step: String,
+    passed: bool,
+    feedback: Option<String>,
+    conversation_id: String,
+) -> Result<String, String> {
+    state
+        .mqtt
+        .publish_escalation_response(
+            &workflow_id,
+            &step,
+            passed,
+            feedback.as_deref(),
+            &conversation_id,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(if passed {
+        "approved".to_string()
+    } else {
+        "rejected".to_string()
+    })
+}
+
+#[tauri::command]
 async fn get_status(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
     let (model_exists, model_path) = stt::model_status(&app);
     Ok(serde_json::json!({
@@ -332,6 +359,7 @@ pub fn run() {
             connect_mqtt,
             send_transcription,
             mqtt_ping,
+            escalation_respond,
             get_status,
             set_model_path,
             get_model_path,

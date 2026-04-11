@@ -13,6 +13,7 @@ const INTENT_REQUEST_TOPIC: &str = "agent/intent/request";
 const INTENT_RESPONSE_TOPIC: &str = "agent/intent/response";
 const WORKFLOW_EVENTS_TOPIC: &str = "agent/workflow/events";
 const WORKFLOW_ESCALATION_TOPIC: &str = "agent/workflow/escalation";
+const ESCALATION_RESPONSE_TOPIC: &str = "agent/escalation/response";
 
 #[derive(Deserialize)]
 struct TranscriptionMessage {
@@ -51,6 +52,9 @@ async fn main() -> Result<()> {
         .await?;
     client
         .subscribe(WORKFLOW_ESCALATION_TOPIC, QoS::AtLeastOnce)
+        .await?;
+    client
+        .subscribe(ESCALATION_RESPONSE_TOPIC, QoS::AtLeastOnce)
         .await?;
     info!("Agent-core started — relay mode (all transcriptions → AtomicGuard)");
 
@@ -100,6 +104,9 @@ async fn main() -> Result<()> {
                     }
                     WORKFLOW_ESCALATION_TOPIC => {
                         handle_workflow_escalation(&client, payload).await;
+                    }
+                    ESCALATION_RESPONSE_TOPIC => {
+                        info!("Escalation response sent: {payload}");
                     }
                     _ => {}
                 }

@@ -155,11 +155,81 @@ function renderWorkflow(id) {
 
 export function handleEscalation(esc) {
   const feedback = esc.feedback || esc.reason || 'Unknown';
-  addMessage('escalation',
-    `<strong>${escapeHtml(esc.workflow)}/${escapeHtml(esc.step)}</strong> &mdash; ${escapeHtml(feedback)}`,
-    'escalation',
-    esc.conversation_id
-  );
+  const convId = esc.conversation_id;
+
+  ensureReady();
+  const card = document.createElement('div');
+  card.className = 'msg msg-escalation';
+
+  card.innerHTML = `
+    <div class="msg-time">${timeNow()} <span class="msg-label">escalation</span></div>
+    <div class="msg-body">
+      <div class="escalation-header">${escapeHtml(esc.workflow)} / ${escapeHtml(esc.step)}</div>
+      <div class="escalation-feedback">${escapeHtml(feedback)}</div>
+      <textarea class="escalation-input" placeholder="Feedback for retry..." style="display:none"></textarea>
+      <div class="escalation-actions">
+        <button class="escalation-btn escalation-btn-approve">Approve</button>
+        <button class="escalation-btn escalation-btn-reject">Reject with Feedback</button>
+      </div>
+      <div class="escalation-resolved" style="display:none"></div>
+    </div>`;
+
+  const parent = getGroupEl(convId) || conversationEl;
+  parent.appendChild(card);
+  conversationEl.scrollTop = conversationEl.scrollHeight;
+
+  const approveBtn = card.querySelector('.escalation-btn-approve');
+  const rejectBtn = card.querySelector('.escalation-btn-reject');
+  const textarea = card.querySelector('.escalation-input');
+  const actions = card.querySelector('.escalation-actions');
+  const resolved = card.querySelector('.escalation-resolved');
+
+  function resolve(text) {
+    actions.style.display = 'none';
+    textarea.style.display = 'none';
+    resolved.style.display = 'block';
+    resolved.textContent = text;
+  }
+
+  approveBtn.addEventListener('click', async () => {
+    if (!IS_TAURI || !tauriInvoke) return;
+    try {
+      await tauriInvoke('escalation_respond', {
+        workflowId: esc.workflow_id,
+        step: esc.step,
+        passed: true,
+        conversationId: convId || '',
+      });
+      resolve('Approved — workflow resuming...');
+    } catch (e) {
+      resolve(`Failed to send: ${e}`);
+    }
+  });
+
+  let rejectMode = false;
+  rejectBtn.addEventListener('click', async () => {
+    if (!rejectMode) {
+      textarea.style.display = 'block';
+      rejectBtn.textContent = 'Send Feedback';
+      rejectMode = true;
+      textarea.focus();
+      return;
+    }
+    if (!IS_TAURI || !tauriInvoke) return;
+    try {
+      await tauriInvoke('escalation_respond', {
+        workflowId: esc.workflow_id,
+        step: esc.step,
+        passed: false,
+        feedback: textarea.value.trim() || null,
+        conversationId: convId || '',
+      });
+      resolve('Rejected — workflow retrying with feedback...');
+    } catch (e) {
+      resolve(`Failed to send: ${e}`);
+    }
+  });
+
   showToast(`ESCALATION: ${esc.workflow}/${esc.step} — ${feedback}`, 'error');
 }
 

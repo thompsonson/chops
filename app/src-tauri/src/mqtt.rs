@@ -9,6 +9,7 @@ use tokio::sync::Mutex;
 use tracing::{info, warn};
 
 const TRANSCRIPTION_TOPIC: &str = "voice/transcriptions";
+const ESCALATION_RESPONSE_TOPIC: &str = "agent/escalation/response";
 
 const SUB_RESPONSES: &str = "agent/responses";
 const SUB_COMMANDS: &str = "agent/commands/#";
@@ -107,6 +108,45 @@ impl MqttClient {
 
         info!("Published ping: {ts}");
         Ok(ts)
+    }
+
+    pub async fn publish_escalation_response(
+        &self,
+        workflow_id: &str,
+        step: &str,
+        passed: bool,
+        feedback: Option<&str>,
+        conversation_id: &str,
+    ) -> Result<()> {
+        let guard = self.client.lock().await;
+        let client = guard
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("MQTT not connected"))?;
+
+        let mut payload = json!({
+            "type": "escalation_response",
+            "workflow_id": workflow_id,
+            "step": step,
+            "passed": passed,
+            "conversation_id": conversation_id,
+        });
+        if let Some(fb) = feedback {
+            payload["feedback"] = serde_json::Value::String(fb.to_string());
+        }
+
+        client
+            .publish(
+                ESCALATION_RESPONSE_TOPIC,
+                QoS::AtLeastOnce,
+                false,
+                payload.to_string(),
+            )
+            .await?;
+
+        info!(
+            "Published escalation response [{conversation_id}]: {workflow_id}/{step} passed={passed}"
+        );
+        Ok(())
     }
 
     pub async fn is_connected(&self) -> bool {
