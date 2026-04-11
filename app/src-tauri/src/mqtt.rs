@@ -252,7 +252,10 @@ async fn subscribe_topics(app: &AppHandle) -> Result<()> {
             .subscribe(SUB_WORKFLOW_ESCALATION, QoS::AtLeastOnce)
             .await?;
         client.subscribe(PING_TOPIC, QoS::AtMostOnce).await?;
-        info!("Subscribed to MQTT topics including AtomicGuard + ping");
+        client
+            .subscribe(ESCALATION_RESPONSE_TOPIC, QoS::AtMostOnce)
+            .await?;
+        info!("Subscribed to MQTT topics including AtomicGuard + ping + escalation response");
     }
     Ok(())
 }
