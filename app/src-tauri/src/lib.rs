@@ -172,6 +172,50 @@ async fn get_model_path(app: tauri::AppHandle) -> Result<String, String> {
     Ok(stt::get_model_path_config(&app))
 }
 
+// --- Session management (proxied to web-ui HTTP API) ---
+// The Tauri app runs on a different machine from the dev daemon.
+// Android WebView can't trust the Tailscale TLS cert, so we proxy
+// through Rust's reqwest which uses native TLS trust.
+
+fn api_base() -> String {
+    // Default to the standard chops web-ui endpoint
+    std::env::var("CHOPS_API_BASE")
+        .unwrap_or_else(|_| "https://pop-mini.monkey-ladon.ts.net:8443".into())
+}
+
+#[tauri::command]
+async fn get_sessions() -> Result<String, String> {
+    let url = format!("{}/api/sessions", api_base());
+    let resp = reqwest::get(&url).await.map_err(|e| format!("{e}"))?;
+    resp.text().await.map_err(|e| format!("{e}"))
+}
+
+#[tauri::command]
+async fn start_session(project: String) -> Result<String, String> {
+    let url = format!("{}/api/sessions/start?project={}", api_base(), urlencoding(&project));
+    let resp = reqwest::Client::new()
+        .post(&url)
+        .send()
+        .await
+        .map_err(|e| format!("{e}"))?;
+    resp.text().await.map_err(|e| format!("{e}"))
+}
+
+#[tauri::command]
+async fn stop_session(session: String) -> Result<String, String> {
+    let url = format!("{}/api/sessions/stop?session={}", api_base(), urlencoding(&session));
+    let resp = reqwest::Client::new()
+        .post(&url)
+        .send()
+        .await
+        .map_err(|e| format!("{e}"))?;
+    resp.text().await.map_err(|e| format!("{e}"))
+}
+
+fn urlencoding(s: &str) -> String {
+    url::form_urlencoded::byte_serialize(s.as_bytes()).collect()
+}
+
 // --- Updater commands (desktop only, stubs on mobile) ---
 
 fn updater_endpoint(channel: &str) -> &'static str {
@@ -324,6 +368,9 @@ pub fn run() {
             set_model_path,
             get_model_path,
             import_model,
+            get_sessions,
+            start_session,
+            stop_session,
             check_for_update,
             install_update,
         ])
