@@ -219,9 +219,16 @@ async function loadSessions() {
     let data;
     if (IS_TAURI && tauriInvoke) {
       debugAppend('sessions', 'tauriInvoke get_sessions');
-      const raw = await tauriInvoke('get_sessions');
-      debugAppend('sessions', `got ${raw.length} bytes`);
-      data = JSON.parse(raw);
+      try {
+        const raw = await tauriInvoke('get_sessions');
+        debugAppend('sessions', `got ${raw.length} bytes`);
+        data = JSON.parse(raw);
+      } catch (e) {
+        debugAppend('sessions', `tauriInvoke FAILED: ${e}`);
+        showDaemonBanner(String(e));
+        pollInterval = Math.min(pollInterval * 2, POLL_MAX);
+        return;
+      }
     } else {
       const url = `${getApiBase()}/api/sessions`;
       debugAppend('sessions', `GET ${url}`);
@@ -256,10 +263,6 @@ async function loadSessions() {
     }
   } catch (e) {
     debugAppend('sessions', `ERROR: ${e}`);
-    if (e && e.toString().includes('unreachable')) {
-      showDaemonBanner(e.toString());
-    }
-    // Keep last-known state visible — don't clear the list
     pollInterval = Math.min(pollInterval * 2, POLL_MAX);
   }
 }
