@@ -224,6 +224,7 @@ header h1 { font-size: 1.25rem; font-weight: 600; }
   overflow-y: auto;
   padding-bottom: 0.5rem;
 }
+.session-list.hidden { display: none; }
 .session-list.daemon-down {
   opacity: 0.5;
   pointer-events: none;

@@ -164,10 +164,16 @@ function openTerminal(name) {
   terminalSessionName.textContent = name;
   terminalIframe.src = `${getTtydUrl()}?t=${Date.now()}`;
   terminalFrame.style.display = 'flex';
+  sessionList.classList.add('hidden');
+  // Focus the iframe so keyboard input goes to the terminal
+  terminalIframe.addEventListener('load', () => {
+    terminalIframe.focus();
+  }, { once: true });
 }
 
 function closeTerminal() {
   terminalFrame.style.display = 'none';
+  sessionList.classList.remove('hidden');
   terminalIframe.src = 'about:blank';
 }
 
