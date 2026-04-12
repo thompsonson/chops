@@ -66,10 +66,16 @@ jobs:
       - name: Inject build version
         run: |
           SHORT_SHA="${GITHUB_SHA::7}"
-          VERSION="0.1.0+${SHORT_SHA}"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION="0.1.0-dev.$(date -u +%Y%m%d.%H%M)"
+          fi
           VERSION_CODE=$(( $(date -u +%s) / 60 ))
           jq --arg v "$VERSION" '.version = $v' app/src-tauri/tauri.conf.json > tmp.json && mv tmp.json app/src-tauri/tauri.conf.json
           echo "TAURI_ANDROID_VERSION_CODE=${VERSION_CODE}" >> "$GITHUB_ENV"
+          echo "DEV_VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "SHORT_SHA=${SHORT_SHA}" >> "$GITHUB_ENV"
           echo "App version: ${VERSION}, versionCode: ${VERSION_CODE}"
 
       - name: Copy custom Android icons
@@ -105,32 +111,33 @@ jobs:
         with:
           files: app/src-tauri/gen/android/app/build/outputs/apk/**/*-release.apk
 
-      - name: Set build timestamp
-        if: github.ref == 'refs/heads/main'
-        run: echo "BUILD_TIME=$(date -u '+%Y-%m-%d %H:%M UTC')" >> "$GITHUB_ENV"
-
       - name: Delete old dev release
         if: github.ref == 'refs/heads/main'
-        run: gh release delete dev --yes --cleanup-tag 2>/dev/null || true
+        run: |
+          OLD_TAG=$(gh release list --json tagName -q '[.[].tagName | select(test("^v0\\.1\\.0-dev\\."))] | map(select(endswith("-desktop") | not))[0] // empty')
+          if [ -n "$OLD_TAG" ]; then
+            echo "Deleting old dev release: $OLD_TAG"
+            gh release delete "$OLD_TAG" --yes --cleanup-tag
+          fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create dev release
         if: github.ref == 'refs/heads/main'
         run: |
-          gh release create dev \
-            --title "Dev Build — ${{ env.BUILD_TIME }} (${{ github.sha }})" \
+          DEV_TAG="v${{ env.DEV_VERSION }}"
+          gh release create "$DEV_TAG" \
+            --title "Dev Build — ${DEV_TAG} (${{ env.SHORT_SHA }})" \
             --prerelease \
-            --notes "$(cat <<'EOF'
-          Rolling development build from `main`.
+            --notes "$(cat <<EOF
+          Rolling development build from \`main\`.
           Updated on every push — install via [Obtainium](https://obtainium.imranr.dev/).
 
-          **Built:** ${{ env.BUILD_TIME }}
-          **Commit:** [`${{ github.sha }}`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})
+          **Version:** \`${{ env.DEV_VERSION }}\`
+          **Commit:** [\`${{ github.sha }}\`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})
           EOF
           )" \
             app/src-tauri/gen/android/app/build/outputs/apk/universal/release/*-release.apk
-          # Ensure release is published (large uploads can leave it as draft)
-          gh release edit dev --draft=false
+          gh release edit "$DEV_TAG" --draft=false
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
