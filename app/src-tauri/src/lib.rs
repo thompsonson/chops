@@ -172,28 +172,6 @@ async fn get_model_path(app: tauri::AppHandle) -> Result<String, String> {
     Ok(stt::get_model_path_config(&app))
 }
 
-// --- Session management commands ---
-
-#[tauri::command]
-async fn get_sessions() -> Result<String, String> {
-    let client = chops_dev_client::DevClient::from_env();
-    let listing = client.list().await.map_err(|e| e.to_string())?;
-    serde_json::to_string(&listing).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn start_session(project: String) -> Result<String, String> {
-    let client = chops_dev_client::DevClient::from_env();
-    client.start(&project, None).await.map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn stop_session(session: String) -> Result<String, String> {
-    let client = chops_dev_client::DevClient::from_env();
-    client.stop(&session).await.map_err(|e| e.to_string())?;
-    Ok(format!(r#"{{"session":"{}","output":"stopped"}}"#, session))
-}
-
 // --- Updater commands (desktop only, stubs on mobile) ---
 
 fn updater_endpoint(channel: &str) -> &'static str {
@@ -346,9 +324,6 @@ pub fn run() {
             set_model_path,
             get_model_path,
             import_model,
-            get_sessions,
-            start_session,
-            stop_session,
             check_for_update,
             install_update,
         ])

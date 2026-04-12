@@ -1,6 +1,6 @@
 // terminal.js — Session list, polling, ttyd terminal
 
-import { IS_TAURI, tauriInvoke, getApiBase, getTtydUrl, showToast } from './app.js';
+import { getApiBase, getTtydUrl, showToast } from './app.js';
 
 const sessionList = document.getElementById('session-list');
 const terminalFrame = document.getElementById('terminal-frame');
@@ -159,9 +159,7 @@ function selectSession(name) {
 function openTerminal(name) {
   selectSession(name);
   // Switch ttyd to this session
-  if (!IS_TAURI) {
-    fetch(`${getApiBase()}/api/sessions/switch?session=${encodeURIComponent(name)}`, { method: 'POST' }).catch(() => {});
-  }
+  fetch(`${getApiBase()}/api/sessions/switch?session=${encodeURIComponent(name)}`, { method: 'POST' }).catch(() => {});
   terminalSessionName.textContent = name;
   terminalIframe.src = `${getTtydUrl()}?t=${Date.now()}`;
   terminalFrame.style.display = 'flex';
@@ -176,13 +174,9 @@ function closeTerminal() {
 
 async function startSession(project) {
   try {
-    if (IS_TAURI && tauriInvoke) {
-      await tauriInvoke('start_session', { project });
-    } else {
-      const resp = await fetch(`${getApiBase()}/api/sessions/start?project=${encodeURIComponent(project)}`, { method: 'POST' });
-      const data = await resp.json();
-      if (data.error) { showToast(data.error, 'error'); return; }
-    }
+    const resp = await fetch(`${getApiBase()}/api/sessions/start?project=${encodeURIComponent(project)}`, { method: 'POST' });
+    const data = await resp.json();
+    if (data.error) { showToast(data.error, 'error'); return; }
     showToast(`Started: ${project}`, 'ok');
     selectSession(project);
     await loadSessions();
@@ -193,13 +187,9 @@ async function startSession(project) {
 
 async function stopSession(session) {
   try {
-    if (IS_TAURI && tauriInvoke) {
-      await tauriInvoke('stop_session', { session });
-    } else {
-      const resp = await fetch(`${getApiBase()}/api/sessions/stop?session=${encodeURIComponent(session)}`, { method: 'POST' });
-      const data = await resp.json();
-      if (data.error) { showToast(data.error, 'error'); return; }
-    }
+    const resp = await fetch(`${getApiBase()}/api/sessions/stop?session=${encodeURIComponent(session)}`, { method: 'POST' });
+    const data = await resp.json();
+    if (data.error) { showToast(data.error, 'error'); return; }
     showToast(`Stopped: ${session}`, 'ok');
     if (selectedSession === session) {
       selectedSession = '';
@@ -217,19 +207,13 @@ async function stopSession(session) {
 
 async function loadSessions() {
   try {
-    let data;
-    if (IS_TAURI && tauriInvoke) {
-      const raw = await tauriInvoke('get_sessions');
-      data = JSON.parse(raw);
-    } else {
-      const resp = await fetch(`${getApiBase()}/api/sessions`);
-      if (resp.status === 503) {
-        const body = await resp.json().catch(() => ({}));
-        showDaemonBanner(body.detail || body.error || 'dev daemon unreachable');
-        return;
-      }
-      data = await resp.json();
+    const resp = await fetch(`${getApiBase()}/api/sessions`);
+    if (resp.status === 503) {
+      const body = await resp.json().catch(() => ({}));
+      showDaemonBanner(body.detail || body.error || 'dev daemon unreachable');
+      return;
     }
+    const data = await resp.json();
 
     // Daemon recovered
     if (daemonDown) hideDaemonBanner();
