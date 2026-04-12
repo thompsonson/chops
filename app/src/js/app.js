@@ -89,12 +89,26 @@ export function showToast(message, level) {
 
 // --- Tab switching ---
 
-let activeTab = 'commands';
+let activeTab = 'sessions';
 
 function initTabs() {
   const tabs = document.querySelectorAll('.tab');
   const contents = document.querySelectorAll('.tab-content');
   const tabActions = document.getElementById('tab-actions');
+  const btnRefresh = document.getElementById('btn-refresh');
+  const btnClear = document.getElementById('btn-clear');
+  const btnCopyAll = document.getElementById('btn-copy-all');
+  const lastUpdated = document.getElementById('last-updated');
+
+  function updateTabActions(target) {
+    const isSessions = target === 'sessions';
+    const isMessages = target === 'messages' || target === 'commands';
+    tabActions.classList.toggle('hidden', false);
+    btnRefresh.style.display = isSessions ? '' : 'none';
+    lastUpdated.style.display = isSessions ? '' : 'none';
+    btnClear.style.display = isMessages ? '' : 'none';
+    btnCopyAll.style.display = isMessages ? '' : 'none';
+  }
 
   tabs.forEach(tab => {
     tab.addEventListener('click', () => {
@@ -104,10 +118,11 @@ function initTabs() {
       contents.forEach(c => c.classList.remove('active'));
       tab.classList.add('active');
       document.getElementById(`tab-${target}`).classList.add('active');
-      // Show actions for commands/messages, hide for terminal
-      tabActions.classList.toggle('hidden', target === 'terminal');
+      updateTabActions(target);
     });
   });
+
+  updateTabActions('sessions');
 }
 
 // --- Tab action buttons ---

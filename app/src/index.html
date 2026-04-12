@@ -27,14 +27,22 @@
     </button>
   </header>
 
+  <!-- Daemon-down banner -->
+  <div class="daemon-banner" id="daemon-banner">
+    dev daemon unreachable — <span id="daemon-banner-detail">check systemctl --user status dev-daemon</span>
+    <button class="daemon-refresh-btn" id="daemon-refresh-btn">Retry</button>
+  </div>
+
   <!-- Tab bar -->
   <nav class="tab-bar">
-    <button class="tab active" data-tab="commands">Commands</button>
-    <button class="tab" data-tab="terminal">Terminal</button>
+    <button class="tab active" data-tab="sessions">Sessions</button>
+    <button class="tab" data-tab="commands">Commands</button>
     <button class="tab" data-tab="messages">Messages</button>
   </nav>
 
   <div class="tab-actions" id="tab-actions">
+    <span class="last-updated" id="last-updated"></span>
+    <button class="tab-action-btn" id="btn-refresh" title="Refresh sessions">Refresh</button>
     <button class="tab-action-btn" id="btn-clear" title="Clear">Clear</button>
     <button class="tab-action-btn" id="btn-copy-all" title="Copy all messages">Copy All</button>
   </div>
@@ -44,22 +52,28 @@
     <button id="copy-menu-btn">Copy</button>
   </div>
 
+  <!-- Sessions tab -->
+  <div class="tab-content active" id="tab-sessions">
+    <div class="session-list" id="session-list">
+      <div class="empty">Loading sessions...</div>
+    </div>
+    <div class="terminal-frame" id="terminal-frame" style="display:none">
+      <div class="terminal-header">
+        <span id="terminal-session-name"></span>
+        <button class="tab-action-btn" id="btn-close-terminal">Close</button>
+      </div>
+      <iframe id="terminal-iframe" sandbox="allow-scripts allow-same-origin"></iframe>
+    </div>
+  </div>
+
   <!-- Commands tab -->
-  <div class="tab-content active" id="tab-commands">
+  <div class="tab-content" id="tab-commands">
     <div class="model-banner" id="model-banner">
       Whisper model not found. Place <code>ggml-base.en.bin</code> in the app data directory.
       <span id="model-path"></span>
     </div>
 
-    <div class="input-row">
-      <button class="mic-btn" id="mic" title="Hold to record">
-        <svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
-      </button>
-      <input type="text" id="cmd" placeholder="run cargo test" autofocus>
-      <button id="send" disabled>Send</button>
-    </div>
-
-    <!-- Transcription review popup (hidden by default) -->
+    <!-- Transcription review popup -->
     <div class="review-popup" id="review-popup">
       <textarea id="review-text" rows="3" placeholder="Transcription will appear here..."></textarea>
       <div class="review-buttons">
@@ -74,24 +88,22 @@
     </div>
   </div>
 
-  <!-- Terminal tab -->
-  <div class="tab-content" id="tab-terminal">
-    <div class="session-bar">
-      <select id="session-select">
-        <option value="">Loading sessions...</option>
-      </select>
-      <button class="session-btn" id="btn-start" title="Start session" disabled>Start</button>
-      <button class="session-btn session-btn-stop" id="btn-stop" title="Stop session" disabled>Stop</button>
-    </div>
-    <div class="terminal-frame" id="terminal-frame">
-      <iframe id="terminal-iframe" sandbox="allow-scripts allow-same-origin"></iframe>
-    </div>
-  </div>
-
   <!-- Messages tab -->
   <div class="tab-content" id="tab-messages">
     <div class="log" id="log">
       <div class="empty">No messages yet.</div>
+    </div>
+  </div>
+
+  <!-- Fixed bottom bar: command input + mic -->
+  <div class="bottom-bar" id="bottom-bar">
+    <div class="session-target" id="session-target">No session selected</div>
+    <div class="input-row">
+      <button class="mic-btn" id="mic" title="Hold to record">
+        <svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+      </button>
+      <input type="text" id="cmd" placeholder="run cargo test" autofocus>
+      <button id="send" disabled>Send</button>
     </div>
   </div>
 
