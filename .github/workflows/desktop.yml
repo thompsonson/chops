@@ -131,9 +131,10 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             VERSION="${GITHUB_REF#refs/tags/v}"
           else
-            # Dev build — extract version from artifact name
-            VERSION=$(ls release-files/*.AppImage 2>/dev/null | head -1 | grep -oP '\d+\.\d+\.\d+-dev\.\d+' || echo "0.1.0-dev")
+            # Dev build — extract version from artifact name (e.g. chops_0.1.0-dev.20260412.1404_amd64.AppImage)
+            VERSION=$(ls release-files/*.AppImage 2>/dev/null | head -1 | grep -oP '\d+\.\d+\.\d+-dev\.\d+\.\d+' || echo "0.1.0-dev")
           fi
+          echo "DEV_VERSION=${VERSION}" >> "$GITHUB_ENV"
 
           REPO_URL="https://github.com/${{ github.repository }}"
           PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -143,7 +144,7 @@ jobs:
             TAG="${GITHUB_REF#refs/tags/}"
             DL_BASE="$REPO_URL/releases/download/$TAG"
           else
-            DL_BASE="$REPO_URL/releases/download/v${{ env.DEV_VERSION }}-desktop"
+            DL_BASE="$REPO_URL/releases/download/v${VERSION}-desktop"
           fi
 
           # Read signatures
