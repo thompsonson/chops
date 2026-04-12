@@ -94,6 +94,7 @@ async fn mqtt_ping(state: tauri::State<'_, AppState>) -> Result<u64, String> {
 #[tauri::command]
 async fn escalation_respond(
     state: tauri::State<'_, AppState>,
+    workflow: String,
     workflow_id: String,
     step: String,
     passed: bool,
@@ -104,6 +105,7 @@ async fn escalation_respond(
     state
         .mqtt
         .publish_escalation_response(
+            &workflow,
             &workflow_id,
             &step,
             passed,

@@ -112,6 +112,7 @@ impl MqttClient {
 
     pub async fn publish_escalation_response(
         &self,
+        workflow: &str,
         workflow_id: &str,
         step: &str,
         passed: bool,
@@ -126,6 +127,7 @@ impl MqttClient {
 
         let mut payload = json!({
             "type": "escalation_response",
+            "workflow": workflow,
             "workflow_id": workflow_id,
             "step": step,
             "passed": passed,

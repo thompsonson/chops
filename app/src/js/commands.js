@@ -204,6 +204,7 @@ export function handleEscalation(esc) {
     const fb = feedbackInput.value.trim() || null;
     try {
       await tauriInvoke('escalation_respond', {
+        workflow: esc.workflow,
         workflowId: esc.workflow_id,
         step: esc.step,
         passed,
