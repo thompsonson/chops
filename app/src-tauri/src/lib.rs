@@ -172,92 +172,6 @@ async fn get_model_path(app: tauri::AppHandle) -> Result<String, String> {
     Ok(stt::get_model_path_config(&app))
 }
 
-// --- Session management (proxied to web-ui HTTP API) ---
-// The Tauri app runs on a different machine from the dev daemon.
-// Android WebView can't trust the Tailscale TLS cert, so we proxy
-// through Rust's reqwest which uses native TLS trust.
-
-fn api_base() -> String {
-    std::env::var("CHOPS_API_BASE")
-        .unwrap_or_else(|_| "https://pop-mini.monkey-ladon.ts.net:8443".into())
-}
-
-fn http_client() -> reqwest::Client {
-    reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-        .unwrap_or_default()
-}
-
-async fn api_get(path: &str) -> Result<String, String> {
-    let url = format!("{}{}", api_base(), path);
-    info!("API GET {url}");
-    let resp = http_client()
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| {
-            let msg = format!("GET {url} failed: {e}");
-            tracing::error!("{msg}");
-            msg
-        })?;
-    let status = resp.status();
-    let body = resp.text().await.map_err(|e| {
-        let msg = format!("GET {url} read body failed: {e}");
-        tracing::error!("{msg}");
-        msg
-    })?;
-    if !status.is_success() {
-        let msg = format!("GET {url} returned {status}: {body}");
-        tracing::error!("{msg}");
-        return Err(msg);
-    }
-    Ok(body)
-}
-
-async fn api_post(path: &str) -> Result<String, String> {
-    let url = format!("{}{}", api_base(), path);
-    info!("API POST {url}");
-    let resp = http_client()
-        .post(&url)
-        .send()
-        .await
-        .map_err(|e| {
-            let msg = format!("POST {url} failed: {e}");
-            tracing::error!("{msg}");
-            msg
-        })?;
-    let status = resp.status();
-    let body = resp.text().await.map_err(|e| {
-        let msg = format!("POST {url} read body failed: {e}");
-        tracing::error!("{msg}");
-        msg
-    })?;
-    if !status.is_success() {
-        let msg = format!("POST {url} returned {status}: {body}");
-        tracing::error!("{msg}");
-        return Err(msg);
-    }
-    Ok(body)
-}
-
-#[tauri::command]
-async fn get_sessions() -> Result<String, String> {
-    api_get("/api/sessions").await
-}
-
-#[tauri::command]
-async fn start_session(project: String) -> Result<String, String> {
-    let encoded: String = url::form_urlencoded::byte_serialize(project.as_bytes()).collect();
-    api_post(&format!("/api/sessions/start?project={encoded}")).await
-}
-
-#[tauri::command]
-async fn stop_session(session: String) -> Result<String, String> {
-    let encoded: String = url::form_urlencoded::byte_serialize(session.as_bytes()).collect();
-    api_post(&format!("/api/sessions/stop?session={encoded}")).await
-}
-
 // --- Updater commands (desktop only, stubs on mobile) ---
 
 fn updater_endpoint(channel: &str) -> &'static str {
@@ -410,9 +324,6 @@ pub fn run() {
             set_model_path,
             get_model_path,
             import_model,
-            get_sessions,
-            start_session,
-            stop_session,
             check_for_update,
             install_update,
         ])

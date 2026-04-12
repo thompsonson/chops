@@ -1,6 +1,6 @@
 // terminal.js — Session list, polling, ttyd terminal
 
-import { IS_TAURI, tauriInvoke, getApiBase, getTtydUrl, showToast } from './app.js';
+import { getApiBase, getTtydUrl, showToast } from './app.js';
 import { debugAppend } from './debug.js';
 
 const sessionList = document.getElementById('session-list');
@@ -175,13 +175,9 @@ function closeTerminal() {
 
 async function startSession(project) {
   try {
-    if (IS_TAURI && tauriInvoke) {
-      await tauriInvoke('start_session', { project });
-    } else {
-      const resp = await fetch(`${getApiBase()}/api/sessions/start?project=${encodeURIComponent(project)}`, { method: 'POST' });
-      const data = await resp.json();
-      if (data.error) { showToast(data.error, 'error'); return; }
-    }
+    const resp = await fetch(`${getApiBase()}/api/sessions/start?project=${encodeURIComponent(project)}`, { method: 'POST' });
+    const data = await resp.json();
+    if (data.error) { showToast(data.error, 'error'); return; }
     showToast(`Started: ${project}`, 'ok');
     selectSession(project);
     await loadSessions();
@@ -192,13 +188,9 @@ async function startSession(project) {
 
 async function stopSession(session) {
   try {
-    if (IS_TAURI && tauriInvoke) {
-      await tauriInvoke('stop_session', { session });
-    } else {
-      const resp = await fetch(`${getApiBase()}/api/sessions/stop?session=${encodeURIComponent(session)}`, { method: 'POST' });
-      const data = await resp.json();
-      if (data.error) { showToast(data.error, 'error'); return; }
-    }
+    const resp = await fetch(`${getApiBase()}/api/sessions/stop?session=${encodeURIComponent(session)}`, { method: 'POST' });
+    const data = await resp.json();
+    if (data.error) { showToast(data.error, 'error'); return; }
     showToast(`Stopped: ${session}`, 'ok');
     if (selectedSession === session) {
       selectedSession = '';
@@ -216,31 +208,24 @@ async function stopSession(session) {
 
 async function loadSessions() {
   try {
-    let data;
-    if (IS_TAURI && tauriInvoke) {
-      debugAppend('sessions', 'tauriInvoke get_sessions');
-      try {
-        const raw = await tauriInvoke('get_sessions');
-        debugAppend('sessions', `got ${raw.length} bytes`);
-        data = JSON.parse(raw);
-      } catch (e) {
-        debugAppend('sessions', `tauriInvoke FAILED: ${e}`);
-        showDaemonBanner(String(e));
-        pollInterval = Math.min(pollInterval * 2, POLL_MAX);
-        return;
-      }
-    } else {
-      const url = `${getApiBase()}/api/sessions`;
-      debugAppend('sessions', `GET ${url}`);
-      const resp = await fetch(url);
-      debugAppend('sessions', `${resp.status} ${resp.statusText}`);
-      if (resp.status === 503) {
-        const body = await resp.json().catch(() => ({}));
-        showDaemonBanner(body.detail || body.error || 'dev daemon unreachable');
-        return;
-      }
-      data = await resp.json();
+    const url = `${getApiBase()}/api/sessions`;
+    const start = performance.now();
+    debugAppend('sessions', `GET ${url}`);
+    const resp = await fetch(url);
+    const ms = Math.round(performance.now() - start);
+    debugAppend('sessions', `${resp.status} ${resp.statusText} (${ms}ms)`);
+    if (resp.status === 503) {
+      const body = await resp.json().catch(() => ({}));
+      showDaemonBanner(body.detail || body.error || 'dev daemon unreachable');
+      return;
     }
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => '');
+      debugAppend('sessions', `ERROR: ${resp.status} ${body}`);
+      pollInterval = Math.min(pollInterval * 2, POLL_MAX);
+      return;
+    }
+    const data = await resp.json();
 
     // Daemon recovered
     if (daemonDown) hideDaemonBanner();
@@ -262,7 +247,11 @@ async function loadSessions() {
       sessionTarget.classList.remove('has-session');
     }
   } catch (e) {
-    debugAppend('sessions', `ERROR: ${e}`);
+    let detail = `${e.name}: ${e.message}`;
+    if (e.message === 'Failed to fetch' || e.message === 'NetworkError when attempting to fetch resource.') {
+      detail += ' [network failure — DNS, TLS cert not trusted, CORS, or not connected to Tailscale]';
+    }
+    debugAppend('sessions', `ERROR: ${detail}`);
     pollInterval = Math.min(pollInterval * 2, POLL_MAX);
   }
 }
