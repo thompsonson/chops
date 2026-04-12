@@ -172,48 +172,26 @@ async fn get_model_path(app: tauri::AppHandle) -> Result<String, String> {
     Ok(stt::get_model_path_config(&app))
 }
 
-// --- Session management commands (Phase 4) ---
+// --- Session management commands ---
 
 #[tauri::command]
 async fn get_sessions() -> Result<String, String> {
-    let output = tokio::process::Command::new("dev")
-        .arg("list")
-        .output()
-        .await
-        .map_err(|e| format!("Failed to run dev list: {e}"))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("dev list failed: {stderr}"));
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    let client = chops_dev_client::DevClient::from_env();
+    let listing = client.list().await.map_err(|e| e.to_string())?;
+    serde_json::to_string(&listing).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 async fn start_session(project: String) -> Result<String, String> {
-    let output = tokio::process::Command::new("dev")
-        .args(["start", &project])
-        .output()
-        .await
-        .map_err(|e| format!("Failed to run dev start: {e}"))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("dev start failed: {stderr}"));
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    let client = chops_dev_client::DevClient::from_env();
+    client.start(&project, None).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 async fn stop_session(session: String) -> Result<String, String> {
-    let output = tokio::process::Command::new("dev")
-        .args(["stop", &session])
-        .output()
-        .await
-        .map_err(|e| format!("Failed to run dev stop: {e}"))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("dev stop failed: {stderr}"));
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    let client = chops_dev_client::DevClient::from_env();
+    client.stop(&session).await.map_err(|e| e.to_string())?;
+    Ok(format!(r#"{{"session":"{}","output":"stopped"}}"#, session))
 }
 
 // --- Updater commands (desktop only, stubs on mobile) ---

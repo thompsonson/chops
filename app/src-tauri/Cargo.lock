@@ -511,6 +511,7 @@ name = "chops-app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chops-dev-client",
  "chrono",
  "rumqttc",
  "serde",
@@ -527,6 +528,16 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "whisper-rs",
+]
+
+[[package]]
+name = "chops-dev-client"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
 ]
 
 [[package]]
