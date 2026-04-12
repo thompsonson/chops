@@ -38,6 +38,7 @@
     <button class="tab active" data-tab="sessions">Sessions</button>
     <button class="tab" data-tab="commands">Commands</button>
     <button class="tab" data-tab="messages">Messages</button>
+    <button class="tab" data-tab="debug">Debug</button>
   </nav>
 
   <div class="tab-actions" id="tab-actions">
@@ -92,6 +93,26 @@
   <div class="tab-content" id="tab-messages">
     <div class="log" id="log">
       <div class="empty">No messages yet.</div>
+    </div>
+  </div>
+
+  <!-- Debug tab -->
+  <div class="tab-content" id="tab-debug">
+    <div class="debug-panel">
+      <div class="debug-section">
+        <div class="debug-heading">Configuration</div>
+        <pre class="debug-output" id="debug-config"></pre>
+      </div>
+      <div class="debug-section">
+        <div class="debug-heading">API Test</div>
+        <button class="session-action-btn" id="btn-debug-sessions">Fetch /api/sessions</button>
+        <button class="session-action-btn" id="btn-debug-mqtt">Test MQTT</button>
+        <pre class="debug-output" id="debug-api-result">Click a button to test...</pre>
+      </div>
+      <div class="debug-section">
+        <div class="debug-heading">Network Log</div>
+        <pre class="debug-output debug-log" id="debug-log">Watching for events...</pre>
+      </div>
     </div>
   </div>
 

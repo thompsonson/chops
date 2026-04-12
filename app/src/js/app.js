@@ -5,6 +5,7 @@ import { initCommands, clearConversation, copyAllMessages } from './commands.js'
 import { initTerminal } from './terminal.js';
 import { initVoice } from './voice.js';
 import { clearLog, copyAllLog } from './messages.js';
+import { initDebug } from './debug.js';
 
 // --- Tauri interop ---
 
@@ -373,6 +374,7 @@ initMqtt();
 initCommands();
 initTerminal();
 initVoice();
+initDebug();
 
 document.getElementById('btn-ping')?.addEventListener('click', pingMqtt);
 

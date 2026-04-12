@@ -1,6 +1,7 @@
 // terminal.js — Session list, polling, ttyd terminal
 
 import { getApiBase, getTtydUrl, showToast } from './app.js';
+import { debugAppend } from './debug.js';
 
 const sessionList = document.getElementById('session-list');
 const terminalFrame = document.getElementById('terminal-frame');
@@ -207,7 +208,10 @@ async function stopSession(session) {
 
 async function loadSessions() {
   try {
-    const resp = await fetch(`${getApiBase()}/api/sessions`);
+    const url = `${getApiBase()}/api/sessions`;
+    debugAppend('sessions', `GET ${url}`);
+    const resp = await fetch(url);
+    debugAppend('sessions', `${resp.status} ${resp.statusText}`);
     if (resp.status === 503) {
       const body = await resp.json().catch(() => ({}));
       showDaemonBanner(body.detail || body.error || 'dev daemon unreachable');
@@ -235,7 +239,7 @@ async function loadSessions() {
       sessionTarget.classList.remove('has-session');
     }
   } catch (e) {
-    // Network error or Tauri command error
+    debugAppend('sessions', `ERROR: ${e}`);
     if (e && e.toString().includes('unreachable')) {
       showDaemonBanner(e.toString());
     }

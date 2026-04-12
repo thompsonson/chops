@@ -849,6 +849,48 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   flex-shrink: 0;
 }
 
+/* --- Debug tab --- */
+
+.debug-panel {
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: 0.5rem;
+}
+.debug-section {
+  margin-bottom: 1rem;
+}
+.debug-heading {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 0.3rem;
+}
+.debug-output {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem;
+  font-size: 0.7rem;
+  line-height: 1.5;
+  color: var(--text);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 300px;
+  overflow-y: auto;
+  margin-top: 0.3rem;
+}
+.debug-log {
+  max-height: 400px;
+  color: var(--muted);
+}
+.debug-section .session-action-btn {
+  margin-right: 0.3rem;
+  margin-bottom: 0.3rem;
+}
+
 /* --- Modal select --- */
 select {
   width: 100%;
