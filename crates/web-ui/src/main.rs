@@ -7,6 +7,7 @@ use chops_dev_client::{DevClient, Error as DevError};
 use serde::Deserialize;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
 use tracing::info;
 
@@ -173,12 +174,16 @@ async fn main() {
             .to_string_lossy(),
     );
 
+    // CORS for Tauri app (Android/desktop WebView), browser, and dev
+    let cors = CorsLayer::permissive();
+
     let app = Router::new()
         .route("/api/sessions", get(api_sessions))
         .route("/api/sessions/switch", post(api_switch_session))
         .route("/api/sessions/start", post(api_start_session))
         .route("/api/sessions/stop", post(api_stop_session))
-        .fallback_service(ServeDir::new(&web_dir));
+        .fallback_service(ServeDir::new(&web_dir))
+        .layer(cors);
 
     let has_tls = PathBuf::from(&cert_path).exists() && PathBuf::from(&key_path).exists();
 

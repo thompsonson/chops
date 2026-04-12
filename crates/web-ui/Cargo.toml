@@ -8,7 +8,7 @@ axum = "0.8"
 axum-server = { version = "0.8", features = ["tls-rustls"] }
 chops-dev-client = { path = "../chops-dev-client" }
 tokio = { version = "1", features = ["full"] }
-tower-http = { version = "0.6", features = ["fs"] }
+tower-http = { version = "0.6", features = ["fs", "cors"] }
 tracing = "0.1"
 tracing-subscriber = "0.3"
 dirs = "6"
