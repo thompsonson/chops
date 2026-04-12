@@ -166,10 +166,15 @@ export function handleEscalation(esc) {
     <div class="msg-body">
       <div class="escalation-header">${escapeHtml(esc.workflow)} / ${escapeHtml(esc.step)}</div>
       <div class="escalation-feedback">${escapeHtml(feedback)}</div>
-      <textarea class="escalation-input" placeholder="Feedback for retry..." style="display:none"></textarea>
+      <div class="escalation-fields">
+        <label class="escalation-label">Specification <span class="escalation-hint">(leave blank to keep current)</span></label>
+        <textarea class="escalation-input" id="esc-spec" placeholder="Task description..." rows="2"></textarea>
+        <label class="escalation-label">Feedback <span class="escalation-hint">(leave blank for none)</span></label>
+        <textarea class="escalation-input" id="esc-feedback" placeholder="Guidance for retry..." rows="2"></textarea>
+      </div>
       <div class="escalation-actions">
         <button class="escalation-btn escalation-btn-approve">Approve</button>
-        <button class="escalation-btn escalation-btn-reject">Reject with Feedback</button>
+        <button class="escalation-btn escalation-btn-retry">Retry with Changes</button>
       </div>
       <div class="escalation-resolved" style="display:none"></div>
     </div>`;
@@ -179,58 +184,50 @@ export function handleEscalation(esc) {
   conversationEl.scrollTop = conversationEl.scrollHeight;
 
   const approveBtn = card.querySelector('.escalation-btn-approve');
-  const rejectBtn = card.querySelector('.escalation-btn-reject');
-  const textarea = card.querySelector('.escalation-input');
+  const retryBtn = card.querySelector('.escalation-btn-retry');
+  const specInput = card.querySelector('#esc-spec');
+  const feedbackInput = card.querySelector('#esc-feedback');
+  const fields = card.querySelector('.escalation-fields');
   const actions = card.querySelector('.escalation-actions');
   const resolved = card.querySelector('.escalation-resolved');
 
   function resolve(text) {
     actions.style.display = 'none';
-    textarea.style.display = 'none';
+    fields.style.display = 'none';
     resolved.style.display = 'block';
     resolved.textContent = text;
   }
 
-  approveBtn.addEventListener('click', async () => {
+  async function sendResponse(passed) {
     if (!IS_TAURI || !tauriInvoke) return;
+    const spec = specInput.value.trim() || null;
+    const fb = feedbackInput.value.trim() || null;
     try {
       await tauriInvoke('escalation_respond', {
         workflowId: esc.workflow_id,
         step: esc.step,
-        passed: true,
+        passed,
+        feedback: fb,
+        specification: spec,
         conversationId: convId || '',
       });
-      resolve('Approved — workflow resuming...');
+      if (passed) {
+        resolve('Approved — workflow resuming...');
+      } else {
+        const parts = [];
+        if (spec) parts.push(`spec: "${spec}"`);
+        if (fb) parts.push(`feedback: "${fb}"`);
+        resolve(`Retrying${parts.length ? ' with ' + parts.join(', ') : ''}...`);
+      }
     } catch (e) {
       resolve(`Failed to send: ${e}`);
     }
-  });
+  }
 
-  let rejectMode = false;
-  rejectBtn.addEventListener('click', async () => {
-    if (!rejectMode) {
-      textarea.style.display = 'block';
-      rejectBtn.textContent = 'Send Feedback';
-      rejectMode = true;
-      textarea.focus();
-      return;
-    }
-    if (!IS_TAURI || !tauriInvoke) return;
-    try {
-      await tauriInvoke('escalation_respond', {
-        workflowId: esc.workflow_id,
-        step: esc.step,
-        passed: false,
-        feedback: textarea.value.trim() || null,
-        conversationId: convId || '',
-      });
-      resolve('Rejected — workflow retrying with feedback...');
-    } catch (e) {
-      resolve(`Failed to send: ${e}`);
-    }
-  });
+  approveBtn.addEventListener('click', () => sendResponse(true));
+  retryBtn.addEventListener('click', () => sendResponse(false));
 
-  showToast(`ESCALATION: ${esc.workflow}/${esc.step} — ${feedback}`, 'error');
+  showToast(`ESCALATION: ${esc.workflow}/${esc.step}`, 'warn');
 }
 
 // --- Response handling ---

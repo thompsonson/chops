@@ -438,6 +438,21 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   font-size: 0.8rem;
   line-height: 1.5;
 }
+.escalation-fields {
+  margin-bottom: 0.4rem;
+}
+.escalation-label {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--muted);
+  margin-bottom: 0.15rem;
+  margin-top: 0.3rem;
+}
+.escalation-label:first-child { margin-top: 0; }
+.escalation-hint {
+  font-style: italic;
+  opacity: 0.7;
+}
 .escalation-input {
   width: 100%;
   padding: 0.4rem 0.5rem;
@@ -447,31 +462,32 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   color: var(--text);
   font-family: inherit;
   font-size: 0.8rem;
-  margin-bottom: 0.4rem;
   resize: vertical;
-  min-height: 2.5rem;
+  min-height: 2rem;
 }
 .escalation-input:focus { border-color: var(--accent); outline: none; }
 .escalation-actions {
   display: flex;
   gap: 0.4rem;
+  margin-top: 0.4rem;
 }
 .escalation-btn {
   padding: 0.3rem 0.7rem;
   font-size: 0.7rem;
   font-family: inherit;
   font-weight: 600;
-  border: none;
+  border: 1px solid var(--border);
   border-radius: 4px;
   cursor: pointer;
+  background: var(--surface);
+  color: var(--text);
 }
-.escalation-btn:hover { opacity: 0.9; }
-.escalation-btn-approve { background: var(--ok); color: var(--bg); }
-.escalation-btn-reject { background: var(--error); color: white; }
+.escalation-btn:hover { border-color: var(--accent); }
 .escalation-resolved {
   font-size: 0.75rem;
   color: var(--muted);
   font-style: italic;
+  margin-top: 0.3rem;
 }
 
 /* --- Session bar --- */

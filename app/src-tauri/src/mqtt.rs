@@ -116,6 +116,7 @@ impl MqttClient {
         step: &str,
         passed: bool,
         feedback: Option<&str>,
+        specification: Option<&str>,
         conversation_id: &str,
     ) -> Result<()> {
         let guard = self.client.lock().await;
@@ -132,6 +133,9 @@ impl MqttClient {
         });
         if let Some(fb) = feedback {
             payload["feedback"] = serde_json::Value::String(fb.to_string());
+        }
+        if let Some(spec) = specification {
+            payload["specification"] = serde_json::Value::String(spec.to_string());
         }
 
         client

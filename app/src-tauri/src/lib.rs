@@ -98,6 +98,7 @@ async fn escalation_respond(
     step: String,
     passed: bool,
     feedback: Option<String>,
+    specification: Option<String>,
     conversation_id: String,
 ) -> Result<String, String> {
     state
@@ -107,6 +108,7 @@ async fn escalation_respond(
             &step,
             passed,
             feedback.as_deref(),
+            specification.as_deref(),
             &conversation_id,
         )
         .await
