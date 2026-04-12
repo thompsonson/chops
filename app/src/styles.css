@@ -378,15 +378,14 @@ header h1 { font-size: 1.25rem; font-weight: 600; }
   background: var(--bg);
 }
 
-/* --- Bottom bar --- */
+/* --- Command bar (inside Commands tab) --- */
 
-.bottom-bar {
+.command-bar {
   border-top: 1px solid var(--border);
-  background: var(--bg);
-  padding: 0.5rem calc(0rem + env(safe-area-inset-right, 0px))
-           calc(0.5rem + env(safe-area-inset-bottom, 0px))
-           0;
+  padding-top: 0.5rem;
+  margin-top: 0.5rem;
   flex-shrink: 0;
+  padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
 }
 .session-target {
   font-size: 0.65rem;
@@ -395,6 +394,32 @@ header h1 { font-size: 1.25rem; font-weight: 600; }
   padding-left: 0.1rem;
 }
 .session-target.has-session { color: var(--ok); }
+
+/* --- Terminal mic bar --- */
+
+.terminal-mic-bar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.4rem 0.5rem;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+/* --- Review options (Enter checkbox) --- */
+
+.review-options {
+  margin-top: 0.4rem;
+  margin-bottom: 0.2rem;
+}
+.review-checkbox {
+  font-size: 0.75rem;
+  color: var(--muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.review-checkbox input { cursor: pointer; }
 
 .input-row {
   display: flex;

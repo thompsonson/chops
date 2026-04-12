@@ -1,8 +1,8 @@
-use axum::extract::Query;
+use axum::extract::{Path, Query};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
-use axum::Router;
+use axum::{Json, Router};
 use chops_dev_client::{DevClient, Error as DevError};
 use serde::Deserialize;
 use std::net::SocketAddr;
@@ -154,6 +154,31 @@ async fn api_stop_session(Query(params): Query<SessionParams>) -> impl IntoRespo
     }
 }
 
+#[derive(Deserialize)]
+struct KeysPayload {
+    keys: String,
+}
+
+/// POST /api/sessions/:name/panes/:pane/keys — send keystrokes to a tmux pane.
+async fn api_send_keys(
+    Path((session, pane)): Path<(String, String)>,
+    Json(payload): Json<KeysPayload>,
+) -> impl IntoResponse {
+    let session = match validate_name(&session) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+
+    let client = DevClient::from_env();
+    match client.send_keys(&session, &pane, &payload.keys).await {
+        Ok(body) => {
+            info!("Sent keys to {session}:{pane}");
+            json_ok(body)
+        }
+        Err(e) => dev_err(e),
+    }
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
@@ -182,6 +207,7 @@ async fn main() {
         .route("/api/sessions/switch", post(api_switch_session))
         .route("/api/sessions/start", post(api_start_session))
         .route("/api/sessions/stop", post(api_stop_session))
+        .route("/api/sessions/{name}/panes/{pane}/keys", post(api_send_keys))
         .fallback_service(ServeDir::new(&web_dir))
         .layer(cors);
 

@@ -1,6 +1,6 @@
 // terminal.js — Session list, polling, ttyd terminal
 
-import { getApiBase, getTtydUrl, showToast } from './app.js';
+import { IS_TAURI, tauriInvoke, getApiBase, getTtydUrl, showToast } from './app.js';
 import { debugAppend } from './debug.js';
 
 const sessionList = document.getElementById('session-list');
@@ -299,6 +299,134 @@ function handleVisibility() {
   }
 }
 
+// --- Send keys to terminal ---
+
+async function sendKeysToTerminal(text) {
+  if (!selectedSession) {
+    showToast('No session selected', 'error');
+    return;
+  }
+  const pane = '1.1'; // default pane
+  const url = `${getApiBase()}/api/sessions/${encodeURIComponent(selectedSession)}/panes/${pane}/keys`;
+  debugAppend('keys', `POST ${url}`);
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keys: text }),
+    });
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => '');
+      debugAppend('keys', `ERROR: ${resp.status} ${body}`);
+      showToast(`Send keys failed: ${resp.status}`, 'error');
+      return;
+    }
+    debugAppend('keys', `sent ${text.length} chars`);
+  } catch (e) {
+    debugAppend('keys', `ERROR: ${e}`);
+    showToast(`Send keys failed: ${e.message}`, 'error');
+  }
+}
+
+// --- Terminal mic (record → transcribe → review → paste into pane) ---
+
+const terminalMic = document.getElementById('terminal-mic');
+const terminalReviewPopup = document.getElementById('terminal-review-popup');
+const terminalReviewText = document.getElementById('terminal-review-text');
+const terminalSendEnter = document.getElementById('terminal-send-enter');
+const terminalReviewSend = document.getElementById('terminal-review-send');
+const terminalReviewCancel = document.getElementById('terminal-review-cancel');
+
+let tRecording = false;
+let tTranscribing = false;
+let tAudioCtx = null;
+let tMediaStream = null;
+let tScriptNode = null;
+let tSamples = [];
+
+async function tStartRecording() {
+  if (tRecording || tTranscribing) return;
+  try {
+    tMediaStream = await navigator.mediaDevices.getUserMedia({
+      audio: { channelCount: 1, sampleRate: 16000, echoCancellation: true, noiseSuppression: true },
+    });
+  } catch (e) {
+    showToast(`Mic access denied: ${e.message}`, 'error');
+    return;
+  }
+  tAudioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+  const source = tAudioCtx.createMediaStreamSource(tMediaStream);
+  tScriptNode = tAudioCtx.createScriptProcessor(4096, 1, 1);
+  tSamples = [];
+  tScriptNode.onaudioprocess = (e) => {
+    if (tRecording) tSamples.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+  };
+  source.connect(tScriptNode);
+  tScriptNode.connect(tAudioCtx.destination);
+  tRecording = true;
+  terminalMic.classList.add('recording');
+}
+
+async function tStopRecording() {
+  if (!tRecording) return;
+  tRecording = false;
+  terminalMic.classList.remove('recording');
+  if (tScriptNode) { tScriptNode.disconnect(); tScriptNode = null; }
+  if (tMediaStream) { tMediaStream.getTracks().forEach(t => t.stop()); tMediaStream = null; }
+  if (tAudioCtx) { tAudioCtx.close().catch(() => {}); tAudioCtx = null; }
+
+  const totalLength = tSamples.reduce((sum, c) => sum + c.length, 0);
+  if (totalLength === 0 || totalLength / 16000 < 0.3) {
+    showToast('Recording too short', 'warn');
+    tSamples = [];
+    return;
+  }
+  const allSamples = new Float32Array(totalLength);
+  let offset = 0;
+  for (const chunk of tSamples) { allSamples.set(chunk, offset); offset += chunk.length; }
+  tSamples = [];
+
+  if (!IS_TAURI || !tauriInvoke) {
+    showToast('Voice requires the Tauri app', 'warn');
+    return;
+  }
+  tTranscribing = true;
+  terminalMic.classList.add('transcribing');
+  try {
+    const text = await tauriInvoke('transcribe_audio', { samples: Array.from(allSamples) });
+    if (text && text.trim() && text.trim() !== '[BLANK_AUDIO]') {
+      showTerminalReview(text.trim());
+    } else {
+      showToast('No speech detected', 'warn');
+    }
+  } catch (e) {
+    showToast(`Transcription failed: ${e}`, 'error');
+  } finally {
+    tTranscribing = false;
+    terminalMic.classList.remove('transcribing');
+  }
+}
+
+function showTerminalReview(text) {
+  terminalReviewText.value = text;
+  terminalReviewPopup.classList.add('visible');
+  terminalReviewText.focus();
+  terminalReviewText.select();
+}
+
+function hideTerminalReview() {
+  terminalReviewPopup.classList.remove('visible');
+  terminalReviewText.value = '';
+}
+
+function sendTerminalReview() {
+  let text = terminalReviewText.value.trim();
+  hideTerminalReview();
+  if (!text) return;
+  if (terminalSendEnter.checked) text += '\n';
+  sendKeysToTerminal(text);
+}
+
 // --- Init ---
 
 export function initTerminal() {
@@ -310,6 +438,22 @@ export function initTerminal() {
   btnRefresh.addEventListener('click', () => {
     pollInterval = POLL_MIN;
     loadSessions();
+  });
+
+  // Terminal mic
+  terminalMic.addEventListener('mousedown', (e) => { e.preventDefault(); tStartRecording(); });
+  terminalMic.addEventListener('mouseup', (e) => { e.preventDefault(); tStopRecording(); });
+  terminalMic.addEventListener('mouseleave', () => { if (tRecording) tStopRecording(); });
+  terminalMic.addEventListener('touchstart', (e) => { e.preventDefault(); tStartRecording(); });
+  terminalMic.addEventListener('touchend', (e) => { e.preventDefault(); tStopRecording(); });
+  terminalMic.addEventListener('touchcancel', () => { if (tRecording) tStopRecording(); });
+
+  // Terminal review popup
+  terminalReviewSend.addEventListener('click', sendTerminalReview);
+  terminalReviewCancel.addEventListener('click', hideTerminalReview);
+  terminalReviewText.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendTerminalReview(); }
+    if (e.key === 'Escape') hideTerminalReview();
   });
 
   document.addEventListener('visibilitychange', handleVisibility);

@@ -64,6 +64,23 @@
         <button class="tab-action-btn" id="btn-close-terminal">Close</button>
       </div>
       <iframe id="terminal-iframe" sandbox="allow-scripts allow-same-origin"></iframe>
+      <!-- Terminal mic: transcribe and paste into pane -->
+      <div class="terminal-mic-bar">
+        <button class="mic-btn" id="terminal-mic" title="Hold to record, paste into terminal">
+          <svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+        </button>
+      </div>
+      <!-- Terminal review popup -->
+      <div class="review-popup" id="terminal-review-popup">
+        <textarea id="terminal-review-text" rows="3" placeholder="Transcription will appear here..."></textarea>
+        <div class="review-options">
+          <label class="review-checkbox"><input type="checkbox" id="terminal-send-enter" checked> Press Enter after sending</label>
+        </div>
+        <div class="review-buttons">
+          <button class="btn-cancel" id="terminal-review-cancel">Cancel</button>
+          <button id="terminal-review-send">Send to terminal</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -86,6 +103,18 @@
     <!-- Conversation feed -->
     <div class="conversation" id="conversation">
       <div class="empty">No messages yet. Type a command or hold the mic to speak.</div>
+    </div>
+
+    <!-- Command input bar -->
+    <div class="command-bar">
+      <div class="session-target" id="session-target">No session selected</div>
+      <div class="input-row">
+        <button class="mic-btn" id="mic" title="Hold to record">
+          <svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+        </button>
+        <input type="text" id="cmd" placeholder="run cargo test" autofocus>
+        <button id="send" disabled>Send</button>
+      </div>
     </div>
   </div>
 
@@ -113,18 +142,6 @@
         <div class="debug-heading">Network Log</div>
         <pre class="debug-output debug-log" id="debug-log">Watching for events...</pre>
       </div>
-    </div>
-  </div>
-
-  <!-- Fixed bottom bar: command input + mic -->
-  <div class="bottom-bar" id="bottom-bar">
-    <div class="session-target" id="session-target">No session selected</div>
-    <div class="input-row">
-      <button class="mic-btn" id="mic" title="Hold to record">
-        <svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
-      </button>
-      <input type="text" id="cmd" placeholder="run cargo test" autofocus>
-      <button id="send" disabled>Send</button>
     </div>
   </div>
 

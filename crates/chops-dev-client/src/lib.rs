@@ -118,6 +118,22 @@ impl DevClient {
         Ok(())
     }
 
+    /// Send keystrokes to a tmux pane.
+    pub async fn send_keys(
+        &self,
+        session: &str,
+        pane: &str,
+        keys: &str,
+    ) -> Result<String> {
+        let payload = serde_json::json!({ "keys": keys });
+        self.request(
+            "POST",
+            &format!("/sessions/{session}/panes/{pane}/keys"),
+            Some(&payload),
+        )
+        .await
+    }
+
     // -- transport ----------------------------------------------------------
 
     async fn request(

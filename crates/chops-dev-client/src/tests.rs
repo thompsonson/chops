@@ -115,6 +115,17 @@ async fn test_stop_succeeds_on_200() {
 }
 
 #[tokio::test]
+async fn test_send_keys_succeeds() {
+    let body = r#"{"sent":11}"#;
+    let (sock, handle) = fake_daemon(body, 202).await;
+    let client = DevClient::new(sock);
+
+    let resp = client.send_keys("chops", "1.1", "echo hello").await.unwrap();
+    assert!(resp.contains("sent"));
+    handle.await.unwrap();
+}
+
+#[tokio::test]
 async fn test_daemon_error_propagates() {
     let body = r#"{"error":"session not found"}"#;
     let (sock, handle) = fake_daemon(body, 404).await;
