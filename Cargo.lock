@@ -1438,8 +1438,10 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "axum-server",
+ "chops-dev-client",
  "dirs",
  "serde",
+ "serde_json",
  "tokio",
  "tower-http",
  "tracing",

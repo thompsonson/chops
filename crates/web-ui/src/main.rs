@@ -3,10 +3,10 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::Router;
+use chops_dev_client::{DevClient, Error as DevError};
 use serde::Deserialize;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use tokio::process::Command;
 use tower_http::services::ServeDir;
 use tracing::info;
 
@@ -14,53 +14,43 @@ fn env_or(key: &str, default: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| default.to_string())
 }
 
-/// Run `dev <args>` and return (success, stdout/stderr).
-async fn run_dev(args: &[&str]) -> Result<String, String> {
-    let home = dirs::home_dir().unwrap_or_default();
-    let dev_bin = home.join(".local/bin/dev");
-
-    let result = Command::new(dev_bin)
-        .args(args)
-        .env("TMUX_TMPDIR", "/tmp")
-        .env("HOME", &home)
-        .env(
-            "PATH",
-            format!(
-                "{}/.local/bin:{}",
-                home.display(),
-                std::env::var("PATH").unwrap_or_default()
-            ),
-        )
-        .output()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if result.status.success() {
-        Ok(String::from_utf8_lossy(&result.stdout).to_string())
-    } else {
-        let err = String::from_utf8_lossy(&result.stderr).trim().to_string();
-        Err(err)
-    }
+fn json_response(
+    status: StatusCode,
+    body: String,
+) -> (StatusCode, [(&'static str, &'static str); 1], String) {
+    (status, [("content-type", "application/json")], body)
 }
 
-fn json_ok(body: String) -> (StatusCode, [(&'static str, &'static str); 1], String) {
-    (StatusCode::OK, [("content-type", "application/json")], body)
+fn json_ok(body: String) -> JsonResponse {
+    json_response(StatusCode::OK, body)
 }
 
-fn json_err(msg: &str) -> (StatusCode, [(&'static str, &'static str); 1], String) {
-    (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        [("content-type", "application/json")],
-        format!(r#"{{"error":"{}"}}"#, msg),
-    )
-}
-
-fn json_bad(msg: &str) -> (StatusCode, [(&'static str, &'static str); 1], String) {
-    (
+fn json_bad(msg: &str) -> JsonResponse {
+    json_response(
         StatusCode::BAD_REQUEST,
-        [("content-type", "application/json")],
         format!(r#"{{"error":"{}"}}"#, msg),
     )
+}
+
+/// Map a DevClient error to an appropriate HTTP response.
+fn dev_err(e: DevError) -> JsonResponse {
+    match &e {
+        DevError::Connect { .. } => json_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            format!(
+                r#"{{"error":"dev daemon unreachable","detail":"{}"}}"#,
+                e
+            ),
+        ),
+        DevError::DaemonError { status, body } => json_response(
+            StatusCode::from_u16(*status).unwrap_or(StatusCode::BAD_GATEWAY),
+            body.clone(),
+        ),
+        _ => json_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!(r#"{{"error":"{}"}}"#, e),
+        ),
+    }
 }
 
 type JsonResponse = (StatusCode, [(&'static str, &'static str); 1], String);
@@ -79,9 +69,13 @@ fn validate_name(name: &str) -> Result<String, JsonResponse> {
 
 /// GET /api/sessions — list active sessions and available projects.
 async fn api_sessions() -> impl IntoResponse {
-    match run_dev(&["list"]).await {
-        Ok(body) => json_ok(body),
-        Err(e) => json_err(&e),
+    let client = DevClient::from_env();
+    match client.list().await {
+        Ok(listing) => match serde_json::to_string(&listing) {
+            Ok(body) => json_ok(body),
+            Err(e) => dev_err(DevError::Json(e)),
+        },
+        Err(e) => dev_err(e),
     }
 }
 
@@ -111,7 +105,10 @@ async fn api_switch_session(Query(params): Query<SessionParams>) -> impl IntoRes
             info!("Switched ttyd session to: {session}");
             json_ok(format!(r#"{{"session":"{}"}}"#, session))
         }
-        Err(e) => json_err(&e.to_string()),
+        Err(e) => json_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!(r#"{{"error":"{}"}}"#, e),
+        ),
     }
 }
 
@@ -122,14 +119,8 @@ async fn api_start_session(Query(params): Query<StartParams>) -> impl IntoRespon
         Err(e) => return e,
     };
 
-    let mut args = vec!["start", &project];
-    let layout_str;
-    if let Some(ref layout) = params.layout {
-        layout_str = layout.clone();
-        args.push(&layout_str);
-    }
-
-    match run_dev(&args).await {
+    let client = DevClient::from_env();
+    match client.start(&project, params.layout.as_deref()).await {
         Ok(output) => {
             info!("Started session: {project}");
             json_ok(format!(
@@ -138,7 +129,7 @@ async fn api_start_session(Query(params): Query<StartParams>) -> impl IntoRespon
                 output.trim()
             ))
         }
-        Err(e) => json_err(&e),
+        Err(e) => dev_err(e),
     }
 }
 
@@ -149,16 +140,16 @@ async fn api_stop_session(Query(params): Query<SessionParams>) -> impl IntoRespo
         Err(e) => return e,
     };
 
-    match run_dev(&["stop", &session]).await {
-        Ok(output) => {
+    let client = DevClient::from_env();
+    match client.stop(&session).await {
+        Ok(()) => {
             info!("Stopped session: {session}");
             json_ok(format!(
-                r#"{{"session":"{}","output":"{}"}}"#,
-                session,
-                output.trim()
+                r#"{{"session":"{}","output":"stopped"}}"#,
+                session
             ))
         }
-        Err(e) => json_err(&e),
+        Err(e) => dev_err(e),
     }
 }
 
