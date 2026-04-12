@@ -173,8 +173,7 @@ export function handleEscalation(esc) {
         <textarea class="escalation-input" id="esc-feedback" placeholder="Guidance for retry..." rows="2"></textarea>
       </div>
       <div class="escalation-actions">
-        <button class="escalation-btn escalation-btn-approve">Approve</button>
-        <button class="escalation-btn escalation-btn-retry">Retry with Changes</button>
+        <button class="escalation-btn escalation-btn-retry">Retry</button>
       </div>
       <div class="escalation-resolved" style="display:none"></div>
     </div>`;
@@ -183,7 +182,6 @@ export function handleEscalation(esc) {
   parent.appendChild(card);
   conversationEl.scrollTop = conversationEl.scrollHeight;
 
-  const approveBtn = card.querySelector('.escalation-btn-approve');
   const retryBtn = card.querySelector('.escalation-btn-retry');
   const specInput = card.querySelector('#esc-spec');
   const feedbackInput = card.querySelector('#esc-feedback');
@@ -198,7 +196,7 @@ export function handleEscalation(esc) {
     resolved.textContent = text;
   }
 
-  async function sendResponse(passed) {
+  retryBtn.addEventListener('click', async () => {
     if (!IS_TAURI || !tauriInvoke) return;
     const spec = specInput.value.trim() || null;
     const fb = feedbackInput.value.trim() || null;
@@ -207,26 +205,19 @@ export function handleEscalation(esc) {
         workflow: esc.workflow,
         workflowId: esc.workflow_id,
         step: esc.step,
-        passed,
+        passed: false,
         feedback: fb,
         specification: spec,
         conversationId: convId || '',
       });
-      if (passed) {
-        resolve('Approved — workflow resuming...');
-      } else {
-        const parts = [];
-        if (spec) parts.push(`spec: "${spec}"`);
-        if (fb) parts.push(`feedback: "${fb}"`);
-        resolve(`Retrying${parts.length ? ' with ' + parts.join(', ') : ''}...`);
-      }
+      const parts = [];
+      if (spec) parts.push(`spec: "${spec}"`);
+      if (fb) parts.push(`feedback: "${fb}"`);
+      resolve(`Retrying${parts.length ? ' with ' + parts.join(', ') : ''}...`);
     } catch (e) {
       resolve(`Failed to send: ${e}`);
     }
-  }
-
-  approveBtn.addEventListener('click', () => sendResponse(true));
-  retryBtn.addEventListener('click', () => sendResponse(false));
+  });
 
   showToast(`ESCALATION: ${esc.workflow}/${esc.step}`, 'warn');
 }
