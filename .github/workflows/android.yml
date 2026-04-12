@@ -130,5 +130,7 @@ jobs:
           EOF
           )" \
             app/src-tauri/gen/android/app/build/outputs/apk/universal/release/*-release.apk
+          # Ensure release is published (large uploads can leave it as draft)
+          gh release edit dev --draft=false
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
