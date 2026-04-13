@@ -161,9 +161,16 @@ function openTerminal(name) {
   selectSession(name);
   // Switch ttyd to this session
   fetch(`${getApiBase()}/api/sessions/switch?session=${encodeURIComponent(name)}`, { method: 'POST' }).catch(() => {});
-  // Open ttyd directly — cross-origin iframes on Android WebView
-  // don't receive keyboard input, so open in a new tab/window instead
-  window.open(`${getTtydUrl()}?t=${Date.now()}`, '_blank');
+  terminalSessionName.textContent = name;
+  terminalIframe.src = `${getTtydUrl()}?t=${Date.now()}`;
+  terminalFrame.style.display = 'flex';
+  sessionList.classList.add('hidden');
+  // Focus iframe so keyboard input goes to ttyd
+  terminalIframe.addEventListener('load', () => {
+    terminalIframe.focus();
+    // Try to focus xterm inside the iframe
+    try { terminalIframe.contentWindow.focus(); } catch {}
+  }, { once: true });
 }
 
 function closeTerminal() {
