@@ -75,7 +75,7 @@ jobs:
       - name: Set dev version
         if: github.ref == 'refs/heads/main'
         run: |
-          DEV_VERSION="0.1.0-dev.$(date -u +%Y%m%d.%H%M)"
+          DEV_VERSION="0.1.0-dev.$(date -u +%Y%m%d%H%M)"
           jq --arg v "$DEV_VERSION" '.version = $v' src-tauri/tauri.conf.json > tmp.json && mv tmp.json src-tauri/tauri.conf.json
           echo "DEV_VERSION=${DEV_VERSION}" >> "$GITHUB_ENV"
         working-directory: app
@@ -132,7 +132,7 @@ jobs:
             VERSION="${GITHUB_REF#refs/tags/v}"
           else
             # Dev build — extract version from artifact name (e.g. chops_0.1.0-dev.20260412.1404_amd64.AppImage)
-            VERSION=$(ls release-files/*.AppImage 2>/dev/null | head -1 | grep -oP '\d+\.\d+\.\d+-dev\.\d+\.\d+' || echo "0.1.0-dev")
+            VERSION=$(ls release-files/*.AppImage 2>/dev/null | head -1 | grep -oP '\d+\.\d+\.\d+-dev\.\d+' || echo "0.1.0-dev")
           fi
           echo "DEV_VERSION=${VERSION}" >> "$GITHUB_ENV"
 

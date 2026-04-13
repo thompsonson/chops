@@ -69,7 +69,7 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             VERSION="${GITHUB_REF#refs/tags/v}"
           else
-            VERSION="0.1.0-dev.$(date -u +%Y%m%d.%H%M)"
+            VERSION="0.1.0-dev.$(date -u +%Y%m%d%H%M)"
           fi
           VERSION_CODE=$(( $(date -u +%s) / 60 ))
           jq --arg v "$VERSION" '.version = $v' app/src-tauri/tauri.conf.json > tmp.json && mv tmp.json app/src-tauri/tauri.conf.json
