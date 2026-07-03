@@ -44,7 +44,7 @@ impl AndroidTunnel {
         // Find SSH binary: bundled path > system PATH
         let ssh_path = find_ssh_binary(&app_data);
 
-        let child = Command::new(&ssh_path)
+        let mut child = Command::new(&ssh_path)
             .args([
                 "-N",
                 "-o",

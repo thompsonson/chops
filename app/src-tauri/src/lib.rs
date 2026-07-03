@@ -460,7 +460,8 @@ pub fn run() {
             {
                 let app_data = app.path().app_data_dir().ok();
                 if let Some(path) = app_data {
-                    let mut mgr = tunnel_mgr.0.lock().await;
+                    let mut mgr = tokio::runtime::Handle::current()
+                        .block_on(tunnel_mgr.0.lock());
                     mgr.set_app_data(path);
                 }
             }
