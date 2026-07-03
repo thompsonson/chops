@@ -1,6 +1,7 @@
 mod mqtt;
 mod stt;
 
+use chops_dev_client::DevClient;
 use mqtt::MqttClient;
 use stt::SttEngine;
 use std::sync::Arc;
@@ -14,6 +15,7 @@ use tauri_plugin_updater::UpdaterExt;
 pub struct AppState {
     pub mqtt: Arc<MqttClient>,
     stt: Arc<SttEngine>,
+    pub dev_client: Arc<DevClient>,
 }
 
 const DEFAULT_MQTT_HOST: &str = "localhost";
@@ -275,11 +277,67 @@ async fn install_update(
     Err("Updates not available on mobile".to_string())
 }
 
+// -- Dev session commands ---------------------------------------------------
+
+#[tauri::command]
+async fn list_sessions(
+    state: tauri::State<'_, AppState>,
+) -> Result<chops_dev_client::Listing, String> {
+    state.dev_client.list().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn inspect_session(
+    state: tauri::State<'_, AppState>,
+    name: String,
+    lines: Option<u32>,
+) -> Result<serde_json::Value, String> {
+    state.dev_client.inspect(&name, lines, None).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn pane_content(
+    state: tauri::State<'_, AppState>,
+    name: String,
+    pane: String,
+    lines: Option<u32>,
+) -> Result<serde_json::Value, String> {
+    state.dev_client.pane_content(&name, &pane, lines).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn send_keys(
+    state: tauri::State<'_, AppState>,
+    name: String,
+    pane: String,
+    keys: String,
+) -> Result<String, String> {
+    state.dev_client.send_keys(&name, &pane, &keys).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn start_session(
+    state: tauri::State<'_, AppState>,
+    project: String,
+    layout: Option<String>,
+) -> Result<String, String> {
+    state.dev_client.start(&project, layout.as_deref()).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn stop_session(
+    state: tauri::State<'_, AppState>,
+    name: String,
+) -> Result<(), String> {
+    state.dev_client.stop(&name).await.map_err(|e| e.to_string())
+}
+
 pub fn run() {
     tracing_subscriber::fmt::init();
 
     let mqtt = Arc::new(MqttClient::new());
     let stt = Arc::new(SttEngine::new());
+    let dev_client = Arc::new(DevClient::from_env());
 
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -297,6 +355,7 @@ pub fn run() {
             let state = AppState {
                 mqtt: mqtt.clone(),
                 stt: stt.clone(),
+                dev_client: dev_client.clone(),
             };
 
             // Auto-connect MQTT on startup (skip on mobile — no local broker)
@@ -326,6 +385,12 @@ pub fn run() {
             import_model,
             check_for_update,
             install_update,
+            list_sessions,
+            inspect_session,
+            pane_content,
+            send_keys,
+            start_session,
+            stop_session,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -23,6 +23,7 @@ tracing-subscriber = "0.3"
 chrono = "0.4"
 anyhow = "1"
 url = "2"
+chops-dev-client = { path = "../../crates/chops-dev-client" }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"

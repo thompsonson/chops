@@ -134,6 +134,45 @@ impl DevClient {
         .await
     }
 
+    /// Fetch git state, sandbox info, and optional pane tail for a session.
+    /// `lines=0` omits the tail (metadata only); `lines=N` includes N lines of pane text.
+    pub async fn inspect(
+        &self,
+        name: &str,
+        lines: Option<u32>,
+        full: Option<bool>,
+    ) -> Result<serde_json::Value> {
+        let mut path = format!("/sessions/{name}/inspect");
+        let mut qs: Vec<String> = Vec::new();
+        if let Some(n) = lines {
+            qs.push(format!("lines={n}"));
+        }
+        if let Some(true) = full {
+            qs.push("full=true".into());
+        }
+        if !qs.is_empty() {
+            path.push('?');
+            path.push_str(&qs.join("&"));
+        }
+        let body = self.request("GET", &path, None).await?;
+        Ok(serde_json::from_str(&body)?)
+    }
+
+    /// Fetch raw pane text for a session pane.
+    pub async fn pane_content(
+        &self,
+        name: &str,
+        pane: &str,
+        lines: Option<u32>,
+    ) -> Result<serde_json::Value> {
+        let mut path = format!("/sessions/{name}/panes/{pane}/content");
+        if let Some(n) = lines {
+            path.push_str(&format!("?lines={n}"));
+        }
+        let body = self.request("GET", &path, None).await?;
+        Ok(serde_json::from_str(&body)?)
+    }
+
     // -- transport ----------------------------------------------------------
 
     async fn request(

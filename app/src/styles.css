@@ -934,3 +934,82 @@ select {
 }
 select:focus { border-color: var(--accent); }
 select option { background: var(--surface); color: var(--text); }
+
+/* --- Inspect panel --- */
+
+.inspect-panel {
+  display: none;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  flex: 1;
+  min-height: 0;
+  margin-top: 0.5rem;
+}
+.inspect-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.3rem 0.6rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.inspect-header-actions {
+  display: flex;
+  gap: 0.3rem;
+}
+.inspect-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.inspect-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.inspect-section {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+}
+.inspect-label {
+  color: var(--muted);
+  font-weight: 600;
+  min-width: 4em;
+  text-transform: uppercase;
+  font-size: 0.65rem;
+  letter-spacing: 0.04em;
+}
+.inspect-value {
+  color: var(--text);
+  font-size: 0.8rem;
+}
+.inspect-pane-section {
+  flex-direction: column;
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
+}
+.inspect-tail {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  min-height: 4rem;
+  max-height: 300px;
+  margin-top: 0.2rem;
+}

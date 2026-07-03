@@ -2,12 +2,23 @@
 
 import { IS_TAURI, tauriInvoke, getApiBase, getTtydUrl, showToast } from './app.js';
 import { debugAppend } from './debug.js';
+import { dispatch } from './session/SessionAction.js';
 
 const sessionList = document.getElementById('session-list');
 const terminalFrame = document.getElementById('terminal-frame');
 const terminalIframe = document.getElementById('terminal-iframe');
 const terminalSessionName = document.getElementById('terminal-session-name');
 const btnCloseTerminal = document.getElementById('btn-close-terminal');
+
+// Inspect panel
+const inspectPanel = document.getElementById('inspect-panel');
+const inspectSessionName = document.getElementById('inspect-session-name');
+const inspectGitValue = document.getElementById('inspect-git-value');
+const inspectLastValue = document.getElementById('inspect-last-value');
+const inspectRepoValue = document.getElementById('inspect-repo-value');
+const inspectTail = document.getElementById('inspect-tail');
+const btnRefreshInspect = document.getElementById('btn-refresh-inspect');
+const btnCloseInspect = document.getElementById('btn-close-inspect');
 const sessionTarget = document.getElementById('session-target');
 const lastUpdatedEl = document.getElementById('last-updated');
 const daemonBanner = document.getElementById('daemon-banner');
@@ -80,6 +91,13 @@ function renderSessions(data) {
 
       const actions = document.createElement('div');
       actions.className = 'session-actions';
+
+      const inspectBtn = document.createElement('button');
+      inspectBtn.className = 'session-action-btn';
+      inspectBtn.textContent = 'Inspect';
+      inspectBtn.title = 'Show session details';
+      inspectBtn.addEventListener('click', (e) => { e.stopPropagation(); inspectSession(s.name); });
+      actions.appendChild(inspectBtn);
 
       const termBtn = document.createElement('button');
       termBtn.className = 'session-action-btn';
@@ -158,6 +176,7 @@ function selectSession(name) {
 // --- Terminal ---
 
 function openTerminal(name) {
+  closeInspect();
   selectSession(name);
   // Switch ttyd to this session
   fetch(`${getApiBase()}/api/sessions/switch?session=${encodeURIComponent(name)}`, { method: 'POST' }).catch(() => {});
@@ -179,13 +198,68 @@ function closeTerminal() {
   terminalIframe.src = 'about:blank';
 }
 
+// --- Inspect ---
+
+let inspectSessionName_ = '';
+
+async function inspectSession(name) {
+  closeTerminal();
+  inspectSessionName_ = name;
+  inspectSessionName.textContent = name;
+  inspectGitValue.textContent = 'Loading...';
+  inspectLastValue.textContent = '';
+  inspectRepoValue.textContent = '';
+  inspectTail.textContent = '';
+  inspectPanel.style.display = 'flex';
+  sessionList.classList.add('hidden');
+  await refreshInspect();
+}
+
+async function refreshInspect() {
+  if (!inspectSessionName_) return;
+  try {
+    const data = await dispatch({ type: 'inspect', session: inspectSessionName_, lines: 0 });
+    const git = data.git || {};
+    const session = data.session || {};
+    const ts = session.last_activity
+      ? new Date(session.last_activity * 1000).toLocaleString()
+      : 'unknown';
+    inspectGitValue.textContent = `${git.branch || '?'} (${(git.head || '?').slice(0, 7)})${git.dirty ? ' *dirty' : ''}`;
+    inspectLastValue.textContent = ts;
+    inspectRepoValue.textContent = session.repository || '—';
+    // Fetch pane tail on demand
+    const pane = data.content?.pane || '1.1';
+    try {
+      const pc = await dispatch({ type: 'pane_content', session: inspectSessionName_, pane, lines: 20 });
+      inspectTail.textContent = pc.content || '(empty)';
+    } catch {
+      inspectTail.textContent = '(unable to fetch pane content)';
+    }
+  } catch (e) {
+    inspectGitValue.textContent = 'Error';
+    inspectLastValue.textContent = '';
+    inspectRepoValue.textContent = '';
+    inspectTail.textContent = `Failed: ${e}`;
+  }
+}
+
+function closeInspect() {
+  inspectPanel.style.display = 'none';
+  sessionList.classList.remove('hidden');
+  inspectSessionName_ = '';
+}
+
 // --- Actions ---
 
 async function startSession(project) {
   try {
-    const resp = await fetch(`${getApiBase()}/api/sessions/start?project=${encodeURIComponent(project)}`, { method: 'POST' });
-    const data = await resp.json();
-    if (data.error) { showToast(data.error, 'error'); return; }
+    if (IS_TAURI) {
+      await dispatch({ type: 'start', project, layout: null });
+    } else {
+      const resp = await fetch(`${getApiBase()}/api/sessions/start?project=${encodeURIComponent(project)}`, { method: 'POST' });
+      const data = await resp.json();
+      if (data.error) { showToast(data.error, 'error'); return; }
+    }
     showToast(`Started: ${project}`, 'ok');
     selectSession(project);
     await loadSessions();
@@ -196,9 +270,13 @@ async function startSession(project) {
 
 async function stopSession(session) {
   try {
-    const resp = await fetch(`${getApiBase()}/api/sessions/stop?session=${encodeURIComponent(session)}`, { method: 'POST' });
-    const data = await resp.json();
-    if (data.error) { showToast(data.error, 'error'); return; }
+    if (IS_TAURI) {
+      await dispatch({ type: 'stop', session });
+    } else {
+      const resp = await fetch(`${getApiBase()}/api/sessions/stop?session=${encodeURIComponent(session)}`, { method: 'POST' });
+      const data = await resp.json();
+      if (data.error) { showToast(data.error, 'error'); return; }
+    }
     showToast(`Stopped: ${session}`, 'ok');
     if (selectedSession === session) {
       selectedSession = '';
@@ -216,24 +294,29 @@ async function stopSession(session) {
 
 async function loadSessions() {
   try {
-    const url = `${getApiBase()}/api/sessions`;
-    const start = performance.now();
-    debugAppend('sessions', `GET ${url}`);
-    const resp = await fetch(url);
-    const ms = Math.round(performance.now() - start);
-    debugAppend('sessions', `${resp.status} ${resp.statusText} (${ms}ms)`);
-    if (resp.status === 503) {
-      const body = await resp.json().catch(() => ({}));
-      showDaemonBanner(body.detail || body.error || 'dev daemon unreachable');
-      return;
+    let data;
+    if (IS_TAURI) {
+      data = await dispatch({ type: 'list_sessions' });
+    } else {
+      const url = `${getApiBase()}/api/sessions`;
+      const start = performance.now();
+      debugAppend('sessions', `GET ${url}`);
+      const resp = await fetch(url);
+      const ms = Math.round(performance.now() - start);
+      debugAppend('sessions', `${resp.status} ${resp.statusText} (${ms}ms)`);
+      if (resp.status === 503) {
+        const body = await resp.json().catch(() => ({}));
+        showDaemonBanner(body.detail || body.error || 'dev daemon unreachable');
+        return;
+      }
+      if (!resp.ok) {
+        const body = await resp.text().catch(() => '');
+        debugAppend('sessions', `ERROR: ${resp.status} ${body}`);
+        pollInterval = Math.min(pollInterval * 2, POLL_MAX);
+        return;
+      }
+      data = await resp.json();
     }
-    if (!resp.ok) {
-      const body = await resp.text().catch(() => '');
-      debugAppend('sessions', `ERROR: ${resp.status} ${body}`);
-      pollInterval = Math.min(pollInterval * 2, POLL_MAX);
-      return;
-    }
-    const data = await resp.json();
 
     // Daemon recovered
     if (daemonDown) hideDaemonBanner();
@@ -315,6 +398,17 @@ async function sendKeysToTerminal(text) {
     return;
   }
   const pane = '1.1'; // default pane
+  if (IS_TAURI) {
+    try {
+      const keys = text + (terminalSendEnter.checked ? '\n' : '');
+      await dispatch({ type: 'send_keys', session: selectedSession, pane, keys });
+      debugAppend('keys', `sent ${keys.length} chars via DevClient`);
+    } catch (e) {
+      debugAppend('keys', `ERROR: ${e}`);
+      showToast(`Send keys failed: ${e}`, 'error');
+    }
+    return;
+  }
   const url = `${getApiBase()}/api/sessions/${encodeURIComponent(selectedSession)}/panes/${pane}/keys`;
   debugAppend('keys', `POST ${url}`);
   try {
@@ -439,6 +533,8 @@ function sendTerminalReview() {
 
 export function initTerminal() {
   btnCloseTerminal.addEventListener('click', closeTerminal);
+  btnCloseInspect.addEventListener('click', closeInspect);
+  btnRefreshInspect.addEventListener('click', refreshInspect);
   daemonRefreshBtn.addEventListener('click', () => {
     pollInterval = POLL_MIN;
     loadSessions();

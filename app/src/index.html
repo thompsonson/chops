@@ -82,6 +82,37 @@
         </div>
       </div>
     </div>
+
+    <!-- Inspect panel -->
+    <div class="inspect-panel" id="inspect-panel" style="display:none">
+      <div class="inspect-header">
+        <span id="inspect-session-name"></span>
+        <div class="inspect-header-actions">
+          <button class="tab-action-btn" id="btn-refresh-inspect" title="Refresh">Refresh</button>
+          <button class="tab-action-btn" id="btn-close-inspect">Close</button>
+        </div>
+      </div>
+      <div class="inspect-body" id="inspect-body">
+        <div class="inspect-col">
+          <div class="inspect-section" id="inspect-git">
+            <span class="inspect-label">Git</span>
+            <span class="inspect-value" id="inspect-git-value"></span>
+          </div>
+          <div class="inspect-section" id="inspect-meta">
+            <span class="inspect-label">Last</span>
+            <span class="inspect-value" id="inspect-last-value"></span>
+          </div>
+          <div class="inspect-section" id="inspect-repo">
+            <span class="inspect-label">Repo</span>
+            <span class="inspect-value" id="inspect-repo-value"></span>
+          </div>
+        </div>
+        <div class="inspect-section inspect-pane-section" id="inspect-pane-section">
+          <span class="inspect-label">Pane tail</span>
+          <pre class="inspect-tail" id="inspect-tail">Click Refresh to fetch pane content</pre>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Commands tab -->
