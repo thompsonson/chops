@@ -19,8 +19,21 @@ fn default_socket_path(host: &str) -> PathBuf {
     PathBuf::from("/tmp").join(format!("dev-{safe}.sock"))
 }
 
-fn remote_socket_path() -> &'static str {
-    "~/.local/run/dev.sock"
+fn default_remote_socket_path() -> String {
+    "/run/user/1000/dev.sock".to_string()
+}
+
+/// Parse a host string into (hostname, remote_socket_path).
+/// Format: `hostname` or `hostname:/path/to/socket`
+fn parse_host(host: &str) -> (&str, String) {
+    if let Some(idx) = host.find(':') {
+        let hostname = &host[..idx];
+        let remote = host[idx + 1..].to_string();
+        if !remote.is_empty() {
+            return (hostname, remote);
+        }
+    }
+    (host, default_remote_socket_path())
 }
 
 // ---------------------------------------------------------------------------
@@ -39,7 +52,10 @@ impl TunnelManager {
     }
 
     /// Ensure a tunnel exists for the given host. Returns the local socket path.
+    /// `host` format: `hostname` or `hostname:/path/to/socket`
     pub fn ensure_tunnel(&mut self, host: &str) -> Result<PathBuf, String> {
+        let (hostname, remote_path) = parse_host(host);
+
         if let Some(tunnel) = self.tunnels.get_mut(host) {
             if tunnel.is_alive() {
                 return Ok(tunnel.socket_path.clone());
@@ -48,21 +64,20 @@ impl TunnelManager {
             self.stop(host);
         }
 
-        let socket_path = default_socket_path(host);
-        let remote = remote_socket_path();
+        let socket_path = default_socket_path(hostname);
 
         let mut child = Command::new(ssh_binary())
             .args([
                 "-N",
                 "-L",
-                &format!("{}:{}", socket_path.display(), remote),
-                host,
+                &format!("{}:{}", socket_path.display(), remote_path),
+                hostname,
             ])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
-            .map_err(|e| format!("Failed to spawn SSH tunnel to {host}: {e}"))?;
+            .map_err(|e| format!("Failed to spawn SSH tunnel to {hostname}: {e}"))?;
 
         // Brief wait for the socket to appear
         for _ in 0..50 {
@@ -74,13 +89,13 @@ impl TunnelManager {
 
         if !socket_path.exists() {
             let _ = child.kill();
-            return Err(format!("SSH tunnel to {host} did not create socket (check auth)"));
+            return Err(format!("SSH tunnel to {hostname} did not create socket (check auth)"));
         }
 
         self.tunnels.insert(
             host.to_string(),
             SshTunnel {
-                _host: host.to_string(),
+                raw_host: host.to_string(),
                 child: Some(child),
                 socket_path: socket_path.clone(),
             },
@@ -124,7 +139,8 @@ impl TunnelManager {
 // ---------------------------------------------------------------------------
 
 struct SshTunnel {
-    _host: String,
+    #[allow(dead_code)]
+    raw_host: String,
     child: Option<Child>,
     socket_path: PathBuf,
 }
