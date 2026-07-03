@@ -25,15 +25,18 @@ fn default_remote_socket_path() -> String {
 
 /// Parse a host string into (hostname, remote_socket_path).
 /// Format: `hostname` or `hostname:/path/to/socket`
-fn parse_host(host: &str) -> (&str, String) {
+fn parse_host(host: &str) -> Result<(&str, String), String> {
     if let Some(idx) = host.find(':') {
         let hostname = &host[..idx];
         let remote = host[idx + 1..].to_string();
         if !remote.is_empty() {
-            return (hostname, remote);
+            if !remote.starts_with('/') {
+                return Err(format!("Remote socket path must be absolute: {remote}"));
+            }
+            return Ok((hostname, remote));
         }
     }
-    (host, default_remote_socket_path())
+    Ok((host, default_remote_socket_path()))
 }
 
 // ---------------------------------------------------------------------------
@@ -54,7 +57,7 @@ impl TunnelManager {
     /// Ensure a tunnel exists for the given host. Returns the local socket path.
     /// `host` format: `hostname` or `hostname:/path/to/socket`
     pub fn ensure_tunnel(&mut self, host: &str) -> Result<PathBuf, String> {
-        let (hostname, remote_path) = parse_host(host);
+        let (hostname, remote_path) = parse_host(host)?;
 
         if let Some(tunnel) = self.tunnels.get_mut(host) {
             if tunnel.is_alive() {
@@ -66,9 +69,14 @@ impl TunnelManager {
 
         let socket_path = default_socket_path(hostname);
 
+        // Lazy cleanup of stale sockets from crashed sessions
+        let _ = std::fs::remove_file(&socket_path);
+
         let mut child = Command::new(ssh_binary())
             .args([
                 "-N",
+                "-o",
+                "StrictHostKeyChecking=accept-new",
                 "-L",
                 &format!("{}:{}", socket_path.display(), remote_path),
                 hostname,
