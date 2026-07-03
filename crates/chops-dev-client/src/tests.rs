@@ -12,10 +12,7 @@ static TEST_ID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new
 
 /// Spawn a fake UDS server that replies with a canned HTTP response.
 /// Returns the socket path (in a temp dir) and a join handle.
-async fn fake_daemon(
-    response_body: &str,
-    status: u16,
-) -> (PathBuf, tokio::task::JoinHandle<()>) {
+async fn fake_daemon(response_body: &str, status: u16) -> (PathBuf, tokio::task::JoinHandle<()>) {
     let id = TEST_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let dir = std::env::temp_dir().join(format!(
         "chops-dev-client-test-{}-{}",
@@ -120,7 +117,10 @@ async fn test_send_keys_succeeds() {
     let (sock, handle) = fake_daemon(body, 202).await;
     let client = DevClient::new(sock);
 
-    let resp = client.send_keys("chops", "1.1", "echo hello").await.unwrap();
+    let resp = client
+        .send_keys("chops", "1.1", "echo hello")
+        .await
+        .unwrap();
     assert!(resp.contains("sent"));
     handle.await.unwrap();
 }

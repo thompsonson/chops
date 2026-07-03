@@ -27,10 +27,7 @@ fn json_ok(body: String) -> JsonResponse {
 }
 
 fn json_bad(msg: &str) -> JsonResponse {
-    json_response(
-        StatusCode::BAD_REQUEST,
-        format!(r#"{{"error":"{}"}}"#, msg),
-    )
+    json_response(StatusCode::BAD_REQUEST, format!(r#"{{"error":"{}"}}"#, msg))
 }
 
 /// Map a DevClient error to an appropriate HTTP response.
@@ -38,10 +35,7 @@ fn dev_err(e: DevError) -> JsonResponse {
     match &e {
         DevError::Connect { .. } => json_response(
             StatusCode::SERVICE_UNAVAILABLE,
-            format!(
-                r#"{{"error":"dev daemon unreachable","detail":"{}"}}"#,
-                e
-            ),
+            format!(r#"{{"error":"dev daemon unreachable","detail":"{}"}}"#, e),
         ),
         DevError::DaemonError { status, body } => json_response(
             StatusCode::from_u16(*status).unwrap_or(StatusCode::BAD_GATEWAY),
@@ -145,10 +139,7 @@ async fn api_stop_session(Query(params): Query<SessionParams>) -> impl IntoRespo
     match client.stop(&session).await {
         Ok(()) => {
             info!("Stopped session: {session}");
-            json_ok(format!(
-                r#"{{"session":"{}","output":"stopped"}}"#,
-                session
-            ))
+            json_ok(format!(r#"{{"session":"{}","output":"stopped"}}"#, session))
         }
         Err(e) => dev_err(e),
     }
@@ -207,7 +198,10 @@ async fn main() {
         .route("/api/sessions/switch", post(api_switch_session))
         .route("/api/sessions/start", post(api_start_session))
         .route("/api/sessions/stop", post(api_stop_session))
-        .route("/api/sessions/{name}/panes/{pane}/keys", post(api_send_keys))
+        .route(
+            "/api/sessions/{name}/panes/{pane}/keys",
+            post(api_send_keys),
+        )
         .fallback_service(ServeDir::new(&web_dir))
         .layer(cors);
 

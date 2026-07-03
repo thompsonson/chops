@@ -99,11 +99,7 @@ impl DevClient {
     }
 
     /// Start a session for the given project. Returns daemon response body.
-    pub async fn start(
-        &self,
-        project: &str,
-        layout: Option<&str>,
-    ) -> Result<String> {
+    pub async fn start(&self, project: &str, layout: Option<&str>) -> Result<String> {
         let payload = match layout {
             Some(l) => serde_json::json!({ "project": project, "layout": l }),
             None => serde_json::json!({ "project": project }),
@@ -119,12 +115,7 @@ impl DevClient {
     }
 
     /// Send keystrokes to a tmux pane.
-    pub async fn send_keys(
-        &self,
-        session: &str,
-        pane: &str,
-        keys: &str,
-    ) -> Result<String> {
+    pub async fn send_keys(&self, session: &str, pane: &str, keys: &str) -> Result<String> {
         let payload = serde_json::json!({ "keys": keys });
         self.request(
             "POST",
@@ -221,8 +212,7 @@ impl DevClient {
 
         let headers = std::str::from_utf8(&raw[..split]).unwrap_or("");
         let status = parse_status(headers)?;
-        let body_str =
-            String::from_utf8_lossy(&raw[split + 4..]).into_owned();
+        let body_str = String::from_utf8_lossy(&raw[split + 4..]).into_owned();
 
         if (200..300).contains(&status) {
             Ok(body_str)
