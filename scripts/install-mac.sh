@@ -15,13 +15,16 @@ if [ "$CHANNEL" = "stable" ]; then
     echo "No stable release found. Use: $0 dev"
     exit 1
   fi
-else
+elif [ "$CHANNEL" = "dev" ]; then
   TAG=$(gh release list --repo "$REPO" --limit 10 --json tagName \
     --jq '[.[] | select(.tagName | endswith("-desktop"))][0].tagName // empty')
   if [ -z "$TAG" ]; then
     echo "No dev release found. Has CI completed?"
     exit 1
   fi
+else
+  # Use the argument as a literal tag name
+  TAG="$CHANNEL"
 fi
 
 echo "Downloading chops ($CHANNEL) from release: $TAG"
