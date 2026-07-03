@@ -3,6 +3,8 @@
 import { IS_TAURI, tauriInvoke, escapeHtml, timeNow, showToast } from './app.js';
 import { getSessionContext } from './terminal.js';
 import { appendLog, createLogEntry } from './messages.js';
+import { dispatch } from './session/SessionAction.js';
+import { getHosts } from './session/sessions.js';
 
 const conversationEl = document.getElementById('conversation');
 const cmdEl = document.getElementById('cmd');
@@ -52,7 +54,7 @@ export function addMessage(type, content, label, conversationId) {
 
 // --- Send command (exported for voice.js review popup) ---
 
-export function sendCommand(overrideText) {
+export async function sendCommand(overrideText) {
   let text = overrideText || cmdEl.value.trim();
   if (!text) return;
 
@@ -78,6 +80,39 @@ export function sendCommand(overrideText) {
   // Show in conversation immediately
   addMessage('sent', escapeHtml(text), 'you', conversationId);
   appendLog(createLogEntry('sent', 'sent', text));
+
+  // Route session commands directly via DevClient (bypass MQTT)
+  if (IS_TAURI) {
+    const sessionCmd = text.match(/^in\s+(\S+)\s+(.+)/i);
+    if (sessionCmd) {
+      const projectName = sessionCmd[1].toLowerCase();
+      const command = sessionCmd[2];
+      const hosts = getHosts();
+      // Try all configured hosts + local
+      const allHosts = hosts.length > 0 ? hosts : [null];
+      for (const host of allHosts) {
+        try {
+          const listing = await dispatch({ type: 'list_sessions', host });
+          const sessions = listing?.sessions || [];
+          const target = sessions.find(s => s.name.toLowerCase() === projectName);
+          if (target) {
+            await dispatch({
+              type: 'send_keys',
+              host: host || undefined,
+              session: target.name,
+              pane: '1.1',
+              keys: command + '\n',
+            });
+            cmdEl.value = '';
+            cmdEl.focus();
+            return;
+          }
+        } catch {
+          // host unreachable, try next
+        }
+      }
+    }
+  }
 
   if (IS_TAURI && tauriInvoke) {
     tauriInvoke('send_transcription', { text, conversationId }).catch(e => {

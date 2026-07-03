@@ -1013,3 +1013,83 @@ select option { background: var(--surface); color: var(--text); }
   max-height: 300px;
   margin-top: 0.2rem;
 }
+
+/* --- Host bar --- */
+
+.host-bar {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+  align-items: center;
+}
+.host-bar input {
+  flex: 1;
+  padding: 0.4rem 0.6rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.8rem;
+  outline: none;
+}
+.host-bar input:focus { border-color: var(--accent); }
+
+/* --- Host groups --- */
+
+.host-group {
+  margin-bottom: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.host-group-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.75rem;
+}
+.host-name {
+  font-weight: 600;
+  color: var(--text);
+  flex: 1;
+}
+.host-count {
+  color: var(--muted);
+  font-size: 0.65rem;
+}
+.host-error {
+  padding: 0.5rem;
+  color: var(--error);
+  font-size: 0.75rem;
+}
+.host-sessions {
+  padding: 0.3rem;
+}
+.host-sessions .session-card {
+  margin-bottom: 0.2rem;
+}
+.btn-remove-host {
+  padding: 0.15rem 0.4rem;
+  font-size: 0.6rem;
+  color: var(--error);
+}
+
+/* --- Tunnel bar --- */
+
+.tunnel-bar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.65rem;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+  margin-top: 0.5rem;
+}
+.tunnel-status.alive { color: var(--ok); }
+.tunnel-status.dead { color: var(--error); }
+}

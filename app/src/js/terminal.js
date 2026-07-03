@@ -3,6 +3,7 @@
 import { IS_TAURI, tauriInvoke, getApiBase, getTtydUrl, showToast } from './app.js';
 import { debugAppend } from './debug.js';
 import { dispatch } from './session/SessionAction.js';
+import { renderGroupedSessions, getHosts, addHost, removeHost } from './session/sessions.js';
 
 const sessionList = document.getElementById('session-list');
 const terminalFrame = document.getElementById('terminal-frame');
@@ -25,6 +26,10 @@ const daemonBanner = document.getElementById('daemon-banner');
 const daemonBannerDetail = document.getElementById('daemon-banner-detail');
 const daemonRefreshBtn = document.getElementById('daemon-refresh-btn');
 const btnRefresh = document.getElementById('btn-refresh');
+
+// Host management
+const hostInput = document.getElementById('host-input');
+const btnAddHost = document.getElementById('btn-add-host');
 
 let selectedSession = '';
 let lastData = null;
@@ -215,6 +220,39 @@ async function inspectSession(name) {
   await refreshInspect();
 }
 
+async function inspectSessionFromHost(host, name) {
+  closeTerminal();
+  inspectSessionName_ = name;
+  inspectSessionName.textContent = `${host} / ${name}`;
+  inspectGitValue.textContent = 'Loading...';
+  inspectLastValue.textContent = '';
+  inspectRepoValue.textContent = '';
+  inspectTail.textContent = '';
+  inspectPanel.style.display = 'flex';
+  sessionList.classList.add('hidden');
+  try {
+    const data = await dispatch({ type: 'inspect', host, session: name, lines: 0 });
+    const git = data.git || {};
+    const session = data.session || {};
+    const ts = session.last_activity
+      ? new Date(session.last_activity * 1000).toLocaleString()
+      : 'unknown';
+    inspectGitValue.textContent = `${git.branch || '?'} (${(git.head || '?').slice(0, 7)})${git.dirty ? ' *dirty' : ''}`;
+    inspectLastValue.textContent = ts;
+    inspectRepoValue.textContent = session.repository || '—';
+    const pane = data.content?.pane || '1.1';
+    try {
+      const pc = await dispatch({ type: 'pane_content', host, session: name, pane, lines: 20 });
+      inspectTail.textContent = pc.content || '(empty)';
+    } catch {
+      inspectTail.textContent = '(unable to fetch pane content)';
+    }
+  } catch (e) {
+    inspectGitValue.textContent = 'Error';
+    inspectTail.textContent = `Failed: ${e}`;
+  }
+}
+
 async function refreshInspect() {
   if (!inspectSessionName_) return;
   try {
@@ -296,6 +334,18 @@ async function loadSessions() {
   try {
     let data;
     if (IS_TAURI) {
+      // Try multi-host first; fall back to single-host
+      const hosts = getHosts();
+      if (hosts.length > 0) {
+        const rendered = await renderGroupedSessions(sessionList);
+        if (rendered) {
+          lastFetchTime = Date.now();
+          updateLastUpdated();
+          if (daemonDown) hideDaemonBanner();
+          pollInterval = POLL_MIN;
+          return;
+        }
+      }
       data = await dispatch({ type: 'list_sessions' });
     } else {
       const url = `${getApiBase()}/api/sessions`;
@@ -542,6 +592,30 @@ export function initTerminal() {
   btnRefresh.addEventListener('click', () => {
     pollInterval = POLL_MIN;
     loadSessions();
+  });
+
+  // Host management
+  btnAddHost.addEventListener('click', () => {
+    const host = hostInput.value.trim();
+    if (host) {
+      addHost(host);
+      hostInput.value = '';
+      loadSessions();
+    }
+  });
+  hostInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') btnAddHost.click();
+  });
+
+  // Custom events from sessions.js (multi-host)
+  window.addEventListener('inspect-session', (e) => {
+    const { host, name } = e.detail;
+    inspectSessionFromHost(host, name);
+  });
+  window.addEventListener('open-terminal', (e) => {
+    const { host, name } = e.detail;
+    selectSession(name);
+    openTerminal(name);
   });
 
   // Terminal mic
