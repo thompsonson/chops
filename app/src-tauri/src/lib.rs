@@ -376,6 +376,44 @@ async fn list_hosts(
     Ok(mgr.status().into_iter().map(|s| s.host).collect())
 }
 
+// -- Android SSH key management (provisioning) --------------------------------
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+async fn ssh_generate_key(
+    app: tauri::AppHandle,
+    host: String,
+) -> Result<String, String> {
+    let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let (priv_key, pub_key) = tunnel::generate_ssh_key()?;
+    let alias = host.replace('.', "_");
+    tunnel::store_ssh_key(&app_data, &alias, &priv_key)?;
+    Ok(pub_key)
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+async fn ssh_key_status(
+    app: tauri::AppHandle,
+    host: String,
+) -> Result<bool, String> {
+    let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let alias = host.replace('.', "_");
+    Ok(tunnel::has_ssh_key(&app_data, &alias))
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+async fn ssh_remove_key(
+    app: tauri::AppHandle,
+    host: String,
+) -> Result<(), String> {
+    let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let alias = host.replace('.', "_");
+    tunnel::delete_ssh_key(&app_data, &alias);
+    Ok(())
+}
+
 pub fn run() {
     tracing_subscriber::fmt::init();
 
@@ -417,6 +455,16 @@ pub fn run() {
             }
 
             app.manage(state);
+
+            #[cfg(target_os = "android")]
+            {
+                let app_data = app.path().app_data_dir().ok();
+                if let Some(path) = app_data {
+                    let mut mgr = tunnel_mgr.0.lock().await;
+                    mgr.set_app_data(path);
+                }
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -439,6 +487,12 @@ pub fn run() {
             stop_session,
             tunnel_status,
             list_hosts,
+            #[cfg(target_os = "android")]
+            ssh_generate_key,
+            #[cfg(target_os = "android")]
+            ssh_key_status,
+            #[cfg(target_os = "android")]
+            ssh_remove_key,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

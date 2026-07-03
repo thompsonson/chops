@@ -216,6 +216,28 @@
     </div>
   </div>
 
+  <!-- Provision dialog (Android SSH key setup) -->
+  <div class="modal-overlay" id="provision-overlay">
+    <div class="modal">
+      <h2>Connect to <span id="provision-hostname"></span></h2>
+      <p style="font-size:0.8rem;color:var(--muted);margin-bottom:0.5rem;">
+        Generating SSH key for password-less access. Copy the command below and run it on your remote server:
+      </p>
+      <div class="provision-key-box">
+        <pre id="provision-public-key" style="font-size:0.65rem;white-space:pre-wrap;word-break:break-all;background:var(--bg);padding:0.5rem;border-radius:4px;border:1px solid var(--border);margin-bottom:0.5rem;"></pre>
+        <button class="tab-action-btn" id="provision-copy-key" style="margin-bottom:0.5rem;">Copy Public Key</button>
+      </div>
+      <p style="font-size:0.75rem;color:var(--muted);">
+        Run this on your server:<br>
+        <code id="provision-cmd" style="color:var(--ok);"></code>
+      </p>
+      <div class="modal-buttons">
+        <button class="btn-cancel" id="provision-cancel">Cancel</button>
+        <button id="provision-done" style="background:var(--ok);">Done — Add Host</button>
+      </div>
+    </div>
+  </div>
+
   <script type="module" src="js/app.js"></script>
 </body>
 </html>

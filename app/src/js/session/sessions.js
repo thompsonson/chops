@@ -162,7 +162,77 @@ async function stopHostSession(host, name) {
   }
 }
 
-// --- Escape ---
+// --- Android SSH provisioning ---
+
+export async function isAndroid() {
+  try {
+    await dispatch({ type: 'ssh_key_status', host: '__test__' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function provisionAndroidHost(host) {
+  const alias = host.replace('.', '_');
+  const hasKey = await dispatch({ type: 'ssh_key_status', host: alias });
+  if (hasKey) {
+    addHost(host);
+    return true;
+  }
+
+  // Generate key — returns public key string
+  const pubKey = await dispatch({ type: 'ssh_generate_key', host: alias });
+
+  // Show provision dialog
+  const overlay = document.getElementById('provision-overlay');
+  const hostnameEl = document.getElementById('provision-hostname');
+  const pubKeyEl = document.getElementById('provision-public-key');
+  const cmdEl = document.getElementById('provision-cmd');
+  const copyBtn = document.getElementById('provision-copy-key');
+  const cancelBtn = document.getElementById('provision-cancel');
+  const doneBtn = document.getElementById('provision-done');
+
+  hostnameEl.textContent = host;
+  pubKeyEl.textContent = pubKey;
+  cmdEl.textContent = `echo '${pubKey}' >> ~/.ssh/authorized_keys`;
+
+  overlay.classList.add('visible');
+
+  return new Promise((resolve) => {
+    const cleanup = () => {
+      overlay.classList.remove('visible');
+      copyBtn.removeEventListener('click', onCopy);
+      cancelBtn.removeEventListener('click', onCancel);
+      doneBtn.removeEventListener('click', onDone);
+    };
+
+    function onCopy() {
+      navigator.clipboard.writeText(pubKey).then(() => {
+        showToast('Public key copied', 'ok');
+      }).catch(() => {
+        // Fallback: select the text
+        pubKeyEl.select();
+        document.execCommand('copy');
+      });
+    }
+
+    function onCancel() {
+      cleanup();
+      resolve(false);
+    }
+
+    function onDone() {
+      addHost(host);
+      cleanup();
+      resolve(true);
+    }
+
+    copyBtn.addEventListener('click', onCopy);
+    cancelBtn.addEventListener('click', onCancel);
+    doneBtn.addEventListener('click', onDone);
+  });
+}
 
 function esc(str) {
   const div = document.createElement('div');

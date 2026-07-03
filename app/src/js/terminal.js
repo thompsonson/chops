@@ -3,7 +3,7 @@
 import { IS_TAURI, tauriInvoke, getApiBase, getTtydUrl, showToast } from './app.js';
 import { debugAppend } from './debug.js';
 import { dispatch } from './session/SessionAction.js';
-import { renderGroupedSessions, getHosts, addHost, removeHost } from './session/sessions.js';
+import { renderGroupedSessions, getHosts, addHost, removeHost, isAndroid, provisionAndroidHost } from './session/sessions.js';
 
 const sessionList = document.getElementById('session-list');
 const terminalFrame = document.getElementById('terminal-frame');
@@ -595,13 +595,21 @@ export function initTerminal() {
   });
 
   // Host management
-  btnAddHost.addEventListener('click', () => {
+  btnAddHost.addEventListener('click', async () => {
     const host = hostInput.value.trim();
-    if (host) {
+    if (!host) return;
+    hostInput.value = '';
+
+    // On Android, run SSH provisioning flow first
+    const android = await isAndroid();
+    if (android) {
+      const ok = await provisionAndroidHost(host);
+      if (!ok) return;
+    } else {
       addHost(host);
-      hostInput.value = '';
-      loadSessions();
     }
+
+    loadSessions();
   });
   hostInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') btnAddHost.click();

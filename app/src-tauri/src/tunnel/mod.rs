@@ -1,18 +1,29 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
 #[cfg(target_os = "android")]
-fn ssh_binary() -> &'static str {
-    "/data/data/com.termux/files/usr/bin/ssh"
+mod android;
+#[cfg(not(target_os = "android"))]
+mod desktop;
+mod secure_key;
+#[allow(unused_imports)]
+pub use secure_key::*;
+
+// ---------------------------------------------------------------------------
+// TunnelImpl trait — platform-specific tunnel backend
+// ---------------------------------------------------------------------------
+
+pub(crate) trait TunnelImpl: Send {
+    fn is_alive(&mut self) -> bool;
+    fn socket_path(&self) -> &Path;
+    fn kill(self: Box<Self>);
 }
 
-#[cfg(not(target_os = "android"))]
-fn ssh_binary() -> &'static str {
-    "ssh"
-}
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
 
 fn default_socket_path(host: &str) -> PathBuf {
     let safe = host.replace(|c: char| !c.is_alphanumeric() && c != '.' && c != '_', "-");
@@ -44,24 +55,32 @@ fn parse_host(host: &str) -> Result<(&str, String), String> {
 // ---------------------------------------------------------------------------
 
 pub struct TunnelManager {
-    tunnels: HashMap<String, SshTunnel>,
+    tunnels: HashMap<String, Box<dyn TunnelImpl>>,
+    #[cfg(target_os = "android")]
+    app_data: PathBuf,
 }
 
 impl TunnelManager {
     pub fn new() -> Self {
         Self {
             tunnels: HashMap::new(),
+            #[cfg(target_os = "android")]
+            app_data: PathBuf::new(),
         }
     }
 
+    #[cfg(target_os = "android")]
+    pub fn set_app_data(&mut self, path: PathBuf) {
+        self.app_data = path;
+    }
+
     /// Ensure a tunnel exists for the given host. Returns the local socket path.
-    /// `host` format: `hostname` or `hostname:/path/to/socket`
     pub fn ensure_tunnel(&mut self, host: &str) -> Result<PathBuf, String> {
         let (hostname, remote_path) = parse_host(host)?;
 
         if let Some(tunnel) = self.tunnels.get_mut(host) {
             if tunnel.is_alive() {
-                return Ok(tunnel.socket_path.clone());
+                return Ok(tunnel.socket_path().to_path_buf());
             }
             // Stale — tear down and recreate
             self.stop(host);
@@ -72,61 +91,32 @@ impl TunnelManager {
         // Lazy cleanup of stale sockets from crashed sessions
         let _ = std::fs::remove_file(&socket_path);
 
-        let mut child = Command::new(ssh_binary())
-            .args([
-                "-N",
-                "-o",
-                "StrictHostKeyChecking=accept-new",
-                "-L",
-                &format!("{}:{}", socket_path.display(), remote_path),
-                hostname,
-            ])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|e| format!("Failed to spawn SSH tunnel to {hostname}: {e}"))?;
+        #[cfg(not(target_os = "android"))]
+        let tunnel: Box<dyn TunnelImpl> = Box::new(desktop::DesktopTunnel::open(
+            hostname, &remote_path, &socket_path,
+        )?);
 
-        // Brief wait for the socket to appear
-        for _ in 0..50 {
-            if socket_path.exists() {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(100));
-        }
+        #[cfg(target_os = "android")]
+        let tunnel: Box<dyn TunnelImpl> = Box::new(android::AndroidTunnel::open(
+            &self.app_data, hostname, &remote_path, &socket_path,
+        )?);
 
-        if !socket_path.exists() {
-            let _ = child.kill();
-            return Err(format!("SSH tunnel to {hostname} did not create socket (check auth)"));
-        }
-
-        self.tunnels.insert(
-            host.to_string(),
-            SshTunnel {
-                raw_host: host.to_string(),
-                child: Some(child),
-                socket_path: socket_path.clone(),
-            },
-        );
-
+        self.tunnels.insert(host.to_string(), tunnel);
         Ok(socket_path)
     }
 
-    /// Tear down a tunnel for a specific host.
     pub fn stop(&mut self, host: &str) {
-        if let Some(mut tunnel) = self.tunnels.remove(host) {
+        if let Some(tunnel) = self.tunnels.remove(host) {
             tunnel.kill();
         }
     }
 
-    /// Tear down all tunnels.
     pub fn stop_all(&mut self) {
-        for (_, mut tunnel) in self.tunnels.drain() {
+        for (_, tunnel) in self.tunnels.drain() {
             tunnel.kill();
         }
     }
 
-    /// Check liveness of all tunnels. Returns status per host.
     pub fn status(&mut self) -> Vec<TunnelStatus> {
         let mut results = Vec::new();
         self.tunnels.retain(|host, tunnel| {
@@ -134,42 +124,11 @@ impl TunnelManager {
             results.push(TunnelStatus {
                 host: host.clone(),
                 alive,
-                socket_path: tunnel.socket_path.clone(),
+                socket_path: tunnel.socket_path().to_path_buf(),
             });
             alive
         });
         results
-    }
-}
-
-// ---------------------------------------------------------------------------
-// SshTunnel
-// ---------------------------------------------------------------------------
-
-struct SshTunnel {
-    #[allow(dead_code)]
-    raw_host: String,
-    child: Option<Child>,
-    socket_path: PathBuf,
-}
-
-impl SshTunnel {
-    fn is_alive(&mut self) -> bool {
-        match self.child.as_mut() {
-            Some(child) => match child.try_wait() {
-                Ok(None) => true,
-                _ => false,
-            },
-            None => false,
-        }
-    }
-
-    fn kill(&mut self) {
-        if let Some(mut child) = self.child.take() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-        let _ = std::fs::remove_file(&self.socket_path);
     }
 }
 
