@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install chops desktop app on macOS from GitHub releases.
-# Usage: ./scripts/install-mac.sh [stable|dev]
+# Usage: ./scripts/install-mac.sh [stable|dev|tag-name]
 set -euo pipefail
 
 REPO="thompsonson/chops"
@@ -16,7 +16,12 @@ if [ "$CHANNEL" = "stable" ]; then
     exit 1
   fi
 else
-  TAG="dev-desktop"
+  TAG=$(gh release list --repo "$REPO" --limit 10 --json tagName \
+    --jq '[.[] | select(.tagName | endswith("-desktop"))][0].tagName // empty')
+  if [ -z "$TAG" ]; then
+    echo "No dev release found. Has CI completed?"
+    exit 1
+  fi
 fi
 
 echo "Downloading chops ($CHANNEL) from release: $TAG"
