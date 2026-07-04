@@ -6,6 +6,7 @@ mod tunnel;
 use chops_dev_client::DevClient;
 use mqtt::MqttClient;
 use stt::SttEngine;
+use std::io::Write;
 use std::sync::Arc;
 use tauri::Manager;
 use tauri_plugin_fs::FsExt;
@@ -432,102 +433,147 @@ async fn clear_logs(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 pub fn run() {
-    let mqtt = Arc::new(MqttClient::new());
-    let stt = Arc::new(SttEngine::new());
-    let dev_client = Arc::new(DevClient::from_env());
-    let tunnel_mgr = TunnelManagerHandle::new();
+    // Install panic hook ASAP — before any init that could panic
+    log::install_panic_hook();
 
-    let mut builder = tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_notification::init());
+    // Wrap the entire Tauri initialization in catch_unwind to prevent
+    // panics (e.g. Android WebView init failure) from causing silent SIGABRT.
+    // The panic is logged, then we abort so Android still gets the signal.
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mqtt = Arc::new(MqttClient::new());
+        let stt = Arc::new(SttEngine::new());
+        let dev_client = Arc::new(DevClient::from_env());
+        let tunnel_mgr = TunnelManagerHandle::new();
 
-    #[cfg(desktop)]
-    {
-        builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
-    }
+        let mut builder = tauri::Builder::default()
+            .plugin(tauri_plugin_shell::init())
+            .plugin(tauri_plugin_dialog::init())
+            .plugin(tauri_plugin_fs::init())
+            .plugin(tauri_plugin_notification::init());
 
-    builder
-        .setup(move |app| {
-            // Init log capture + tracing
-            let app_data = app.path().app_data_dir().unwrap_or_default();
-            let log_path = app_data.join("chops.log");
-            log::install_panic_hook(log_path.clone());
-            if let Ok(log_file) = log::open_log(&log_path) {
-                tracing_subscriber::fmt()
-                    .with_writer(log_file)
-                    .with_ansi(false)
-                    .init();
-            } else {
-                tracing_subscriber::fmt()
-                    .with_ansi(false)
-                    .init();
-            }
-            let state = AppState {
-                mqtt: mqtt.clone(),
-                stt: stt.clone(),
-                dev_client: dev_client.clone(),
-                tunnel_mgr: tunnel_mgr.clone(),
-            };
+        #[cfg(desktop)]
+        {
+            builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+        }
 
-            // Auto-connect MQTT on startup (skip on mobile — no local broker)
-            if !cfg!(mobile) {
-                let mqtt_for_connect = mqtt.clone();
-                let port = mqtt_port();
-                let app_handle = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    if let Err(e) = mqtt_for_connect.connect(DEFAULT_MQTT_HOST, port, app_handle).await {
-                        info!("MQTT auto-connect failed (will retry on demand): {e}");
-                    }
-                });
-            }
-
-            app.manage(state);
-
-            #[cfg(target_os = "android")]
-            {
-                let app_data = app.path().app_data_dir().ok();
-                if let Some(path) = app_data {
-                    let mut mgr = tokio::runtime::Handle::current()
-                        .block_on(tunnel_mgr.0.lock());
-                    mgr.set_app_data(path);
+        builder
+            .setup(move |app| {
+                // Init log capture + tracing (with wry debug output)
+                let app_data = app.path().app_data_dir().unwrap_or_default();
+                let log_path = app_data.join("chops.log");
+                log::set_panic_log_path(log_path.clone());
+                if let Ok(log_file) = log::open_log(&log_path) {
+                    tracing_subscriber::fmt()
+                        .with_env_filter(
+                            tracing_subscriber::EnvFilter::builder()
+                                .with_default_directive(
+                                    tracing_subscriber::filter::LevelFilter::INFO.into()
+                                )
+                                .parse_lossy("wry=debug")
+                        )
+                        .with_writer(log_file)
+                        .with_ansi(false)
+                        .init();
+                } else {
+                    tracing_subscriber::fmt()
+                        .with_env_filter(
+                            tracing_subscriber::EnvFilter::builder()
+                                .with_default_directive(
+                                    tracing_subscriber::filter::LevelFilter::INFO.into()
+                                )
+                                .parse_lossy("wry=debug")
+                        )
+                        .with_ansi(false)
+                        .init();
                 }
-            }
+                let state = AppState {
+                    mqtt: mqtt.clone(),
+                    stt: stt.clone(),
+                    dev_client: dev_client.clone(),
+                    tunnel_mgr: tunnel_mgr.clone(),
+                };
 
-            Ok(())
-        })
-        .invoke_handler(tauri::generate_handler![
-            transcribe_audio,
-            connect_mqtt,
-            send_transcription,
-            mqtt_ping,
-            escalation_respond,
-            get_status,
-            set_model_path,
-            get_model_path,
-            import_model,
-            check_for_update,
-            install_update,
-            list_sessions,
-            inspect_session,
-            pane_content,
-            send_keys,
-            start_session,
-            stop_session,
-            tunnel_status,
-            list_hosts,
-            #[cfg(target_os = "android")]
-            ssh_generate_key,
-            #[cfg(target_os = "android")]
-            ssh_key_status,
-            #[cfg(target_os = "android")]
-            ssh_remove_key,
-            get_logs,
-            clear_logs,
-        ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+                // Auto-connect MQTT on startup (skip on mobile — no local broker)
+                if !cfg!(mobile) {
+                    let mqtt_for_connect = mqtt.clone();
+                    let port = mqtt_port();
+                    let app_handle = app.handle().clone();
+                    tauri::async_runtime::spawn(async move {
+                        if let Err(e) = mqtt_for_connect.connect(DEFAULT_MQTT_HOST, port, app_handle).await
+                        {
+                            info!("MQTT auto-connect failed (will retry on demand): {e}");
+                        }
+                    });
+                }
+
+                app.manage(state);
+
+                #[cfg(target_os = "android")]
+                {
+                    let app_data = app.path().app_data_dir().ok();
+                    if let Some(path) = app_data {
+                        let mut mgr = tokio::runtime::Handle::current()
+                            .block_on(tunnel_mgr.0.lock());
+                        mgr.set_app_data(path);
+                    }
+                }
+
+                Ok(())
+            })
+            .invoke_handler(tauri::generate_handler![
+                transcribe_audio,
+                connect_mqtt,
+                send_transcription,
+                mqtt_ping,
+                escalation_respond,
+                get_status,
+                set_model_path,
+                get_model_path,
+                import_model,
+                check_for_update,
+                install_update,
+                list_sessions,
+                inspect_session,
+                pane_content,
+                send_keys,
+                start_session,
+                stop_session,
+                tunnel_status,
+                list_hosts,
+                #[cfg(target_os = "android")]
+                ssh_generate_key,
+                #[cfg(target_os = "android")]
+                ssh_key_status,
+                #[cfg(target_os = "android")]
+                ssh_remove_key,
+                get_logs,
+                clear_logs,
+            ])
+            .run(tauri::generate_context!())
+    }));
+
+    if let Err(e) = result {
+        let msg = if let Some(s) = e.downcast_ref::<&str>() {
+            s.to_string()
+        } else if let Some(s) = e.downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "Unknown panic (no message)".to_string()
+        };
+        // Write to stderr (visible in logcat on Android)
+        let _ = writeln!(std::io::stderr(), "--- Tauri INIT PANIC ---\n{msg}\n--- END PANIC ---");
+        // Also try to write to chops.log (might not be initialized yet)
+        if let Some(path) = log::PANIC_LOG_PATH.get() {
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+            {
+                let _ = writeln!(f, "--- TAURI INIT PANIC ---\n{msg}\n--- END PANIC ---");
+            }
+        }
+        std::process::abort();
+    }
 }
 
 #[cfg(mobile)]
