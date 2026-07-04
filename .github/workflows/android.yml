@@ -83,19 +83,17 @@ jobs:
           RES_DIR=app/src-tauri/gen/android/app/src/main/res
           cp -r app/src-tauri/icons/android/* "$RES_DIR/"
 
-      - name: Copy frontend assets
-        run: |
-          mkdir -p app/src-tauri/gen/android/app/src/main/assets
-          cp app/src/index.html app/src-tauri/gen/android/app/src/main/assets/
-          cp app/src/styles.css app/src-tauri/gen/android/app/src/main/assets/
-          cp -r app/src/js app/src-tauri/gen/android/app/src/main/assets/js
-
       - name: Decode keystore
         run: echo "${{ secrets.ANDROID_KEYSTORE }}" | base64 -d > /tmp/chops-release.jks
 
-      - name: Build APK
-        run: npx tauri android build --target aarch64 --target x86_64
-        working-directory: app
+      - name: Build APK (via tauri-action)
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: app
+          mobile: 'android'
+          args: '--target aarch64 --target x86_64'
 
       - name: Sign APK
         run: |

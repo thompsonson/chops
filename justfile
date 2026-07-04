@@ -20,10 +20,10 @@ check-android:
 # ── Emulator setup ───────────────────────────────────────────────────────────
 
 setup-emulator:
-    {{android_home}}/cmdline-tools/latest/bin/sdkmanager "emulator" "system-images;android-34;google_apis;arm64-v8a"
+    {{android_home}}/cmdline-tools/latest/bin/sdkmanager "emulator" "system-images;android-34;google_apis;x86_64"
 
 create-avd:
-    echo no | {{android_home}}/cmdline-tools/latest/bin/avdmanager create avd -n chops-test -k "system-images;android-34;google_apis;arm64-v8a"
+    echo no | {{android_home}}/cmdline-tools/latest/bin/avdmanager create avd -n chops-test -k "system-images;android-34;google_apis;x86_64"
 
 # ── Emulator lifecycle ───────────────────────────────────────────────────────
 
@@ -55,13 +55,6 @@ logs:
 crash-log:
     {{android_home}}/platform-tools/adb logcat -d -s chops-app rust:T *:F
 
-# ── Build preparation ───────────────────────────────────────────────────────
-
-copy-assets:
-    cp app/src/index.html app/src-tauri/gen/android/app/src/main/assets/
-    cp app/src/styles.css app/src-tauri/gen/android/app/src/main/assets/
-    cp -r app/src/js app/src-tauri/gen/android/app/src/main/assets/js
-
 # ── All-in-one ───────────────────────────────────────────────────────────────
 
-android-test: setup-emulator create-avd copy-assets start-emulator wait-boot pull-apk install-apk launch logs
+android-test: setup-emulator create-avd start-emulator wait-boot pull-apk install-apk launch logs
