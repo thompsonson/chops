@@ -85,10 +85,10 @@ jobs:
 
       - name: Copy frontend assets
         run: |
-          ASSETS_DIR=app/src-tauri/gen/android/app/src/main/assets
-          cp app/src/index.html "$ASSETS_DIR/"
-          cp app/src/styles.css "$ASSETS_DIR/"
-          cp -r app/src/js "$ASSETS_DIR/js"
+          mkdir -p app/src-tauri/gen/android/app/src/main/assets
+          cp app/src/index.html app/src-tauri/gen/android/app/src/main/assets/
+          cp app/src/styles.css app/src-tauri/gen/android/app/src/main/assets/
+          cp -r app/src/js app/src-tauri/gen/android/app/src/main/assets/js
 
       - name: Decode keystore
         run: echo "${{ secrets.ANDROID_KEYSTORE }}" | base64 -d > /tmp/chops-release.jks
