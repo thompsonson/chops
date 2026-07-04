@@ -1,3 +1,4 @@
+mod log;
 mod mqtt;
 mod stt;
 mod tunnel;
@@ -414,9 +415,23 @@ async fn ssh_remove_key(
     Ok(())
 }
 
-pub fn run() {
-    tracing_subscriber::fmt::init();
+// -- Log export -------------------------------------------------------------
 
+#[tauri::command]
+async fn get_logs(app: tauri::AppHandle) -> Result<String, String> {
+    let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let path = app_data.join("chops.log");
+    std::fs::read_to_string(&path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn clear_logs(app: tauri::AppHandle) -> Result<(), String> {
+    let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let path = app_data.join("chops.log");
+    std::fs::write(&path, b"[cleared]\n").map_err(|e| e.to_string())
+}
+
+pub fn run() {
     let mqtt = Arc::new(MqttClient::new());
     let stt = Arc::new(SttEngine::new());
     let dev_client = Arc::new(DevClient::from_env());
@@ -435,6 +450,20 @@ pub fn run() {
 
     builder
         .setup(move |app| {
+            // Init log capture + tracing
+            let app_data = app.path().app_data_dir().unwrap_or_default();
+            let log_path = app_data.join("chops.log");
+            log::install_panic_hook(log_path.clone());
+            if let Ok(log_file) = log::open_log(&log_path) {
+                tracing_subscriber::fmt()
+                    .with_writer(log_file)
+                    .with_ansi(false)
+                    .init();
+            } else {
+                tracing_subscriber::fmt()
+                    .with_ansi(false)
+                    .init();
+            }
             let state = AppState {
                 mqtt: mqtt.clone(),
                 stt: stt.clone(),
@@ -494,6 +523,8 @@ pub fn run() {
             ssh_key_status,
             #[cfg(target_os = "android")]
             ssh_remove_key,
+            get_logs,
+            clear_logs,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

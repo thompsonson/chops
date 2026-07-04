@@ -1,12 +1,15 @@
 // debug.js — Debug tab: config display, API testing, network log
 
-import { IS_TAURI, getApiBase, getTtydUrl, getHost, settings } from './app.js';
+import { IS_TAURI, tauriInvoke, getApiBase, getTtydUrl, getHost, settings } from './app.js';
 
 const debugConfig = document.getElementById('debug-config');
 const debugApiResult = document.getElementById('debug-api-result');
 const debugLog = document.getElementById('debug-log');
 const btnDebugSessions = document.getElementById('btn-debug-sessions');
 const btnDebugMqtt = document.getElementById('btn-debug-mqtt');
+const btnExportLogs = document.getElementById('btn-export-logs');
+const btnClearLogs = document.getElementById('btn-clear-logs');
+const debugLogsOutput = document.getElementById('debug-logs-output');
 
 let logLines = [];
 const MAX_LOG_LINES = 200;
@@ -85,4 +88,33 @@ export function initDebug() {
   btnDebugSessions.addEventListener('click', testSessions);
   btnDebugMqtt.addEventListener('click', testMqtt);
   debugAppend('init', `Debug tab ready. IS_TAURI=${IS_TAURI}`);
+
+  // Log export/clear (Tauri only)
+  if (IS_TAURI) {
+    btnExportLogs.addEventListener('click', async () => {
+      try {
+        const logs = await tauriInvoke('get_logs');
+        debugLogsOutput.textContent = logs || '(empty)';
+        await navigator.clipboard.writeText(logs);
+        debugAppend('logs', 'Copied to clipboard');
+      } catch (e) {
+        debugLogsOutput.textContent = `Error: ${e}`;
+      }
+    });
+
+    btnClearLogs.addEventListener('click', async () => {
+      try {
+        await tauriInvoke('clear_logs');
+        debugLogsOutput.textContent = '(cleared)';
+        debugAppend('logs', 'Cleared');
+      } catch (e) {
+        debugLogsOutput.textContent = `Error: ${e}`;
+      }
+    });
+  } else {
+    btnExportLogs.disabled = true;
+    btnClearLogs.disabled = true;
+    btnExportLogs.title = 'Logs require Tauri';
+    btnClearLogs.title = 'Logs require Tauri';
+  }
 }
