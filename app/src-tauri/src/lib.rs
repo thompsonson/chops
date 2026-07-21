@@ -438,7 +438,15 @@ async fn ssh_authorize_key(
         pub_key
     };
 
-    let result = tunnel::authorize_key(&app_data, &hostname, port, &username, &password, &public_key).await?;
+    let result = tunnel::authorize_key(
+        &app_data,
+        &hostname,
+        port,
+        &username,
+        &password,
+        &public_key,
+    )
+    .await?;
 
     tunnel::store_ssh_username(&app_data, &alias, &username)?;
     tunnel::store_ssh_port(&app_data, &alias, port)?;

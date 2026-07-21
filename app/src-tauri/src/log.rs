@@ -35,14 +35,13 @@ pub fn install_panic_hook() {
             .get()
             .cloned()
             .unwrap_or_else(|| std::env::temp_dir().join("chops-panic.log"));
-        if let Ok(mut f) = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)
-        {
+        if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&path) {
             let _ = writeln!(f, "--- PANIC ---\n{info}\n--- END PANIC ---");
         }
         // Also print to stderr for logcat visibility on Android
-        let _ = writeln!(std::io::stderr(), "--- PANIC ---\n{info}\n--- END PANIC ---");
+        let _ = writeln!(
+            std::io::stderr(),
+            "--- PANIC ---\n{info}\n--- END PANIC ---"
+        );
     }));
 }

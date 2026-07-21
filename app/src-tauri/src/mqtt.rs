@@ -194,11 +194,7 @@ async fn drive_eventloop(mut eventloop: EventLoop, app: AppHandle) {
                             .get("workflow")
                             .and_then(|w| w.as_str())
                             .unwrap_or("unknown");
-                        fire_notification(
-                            &app,
-                            "ESCALATION",
-                            &format!("{workflow}: {feedback}"),
-                        );
+                        fire_notification(&app, "ESCALATION", &format!("{workflow}: {feedback}"));
                     }
                 }
 
@@ -220,13 +216,7 @@ async fn drive_eventloop(mut eventloop: EventLoop, app: AppHandle) {
                 }
 
                 // Forward all messages to frontend
-                let _ = app.emit(
-                    "mqtt-message",
-                    MqttMessage {
-                        topic,
-                        payload,
-                    },
-                );
+                let _ = app.emit("mqtt-message", MqttMessage { topic, payload });
             }
             Ok(Event::Incoming(Packet::Disconnect)) => {
                 let _ = app.emit("mqtt-status", "disconnected");

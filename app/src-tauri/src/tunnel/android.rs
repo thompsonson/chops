@@ -87,8 +87,17 @@ impl AndroidTunnel {
                 .expect("AndroidTunnel tokio runtime");
 
             rt.block_on(async move {
-                if let Err(e) =
-                    run_tunnel(app_data, &key_bytes, &username, &host, port, &remote, &sock_clone, shutdown_rx).await
+                if let Err(e) = run_tunnel(
+                    app_data,
+                    &key_bytes,
+                    &username,
+                    &host,
+                    port,
+                    &remote,
+                    &sock_clone,
+                    shutdown_rx,
+                )
+                .await
                 {
                     error!("Android tunnel to {host}:{port} failed: {e}");
                 }
@@ -202,7 +211,9 @@ async fn run_tunnel(
     }
 
     info!("Tunnel shutting down: {hostname}");
-    let _ = handle.disconnect(Disconnect::ByApplication, "", "English").await;
+    let _ = handle
+        .disconnect(Disconnect::ByApplication, "", "English")
+        .await;
     Ok(())
 }
 
