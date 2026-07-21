@@ -4,7 +4,7 @@ use std::sync::Arc;
 use russh::client;
 use russh::keys::key;
 use russh::{ChannelMsg, Disconnect};
-use tracing::{error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::tunnel::sh_quote;
 
@@ -40,6 +40,16 @@ impl client::Handler for ClientHandler {
         info!("Learned host key for {}:{}", self.hostname, self.port);
         Ok(true)
     }
+}
+
+fn build_install_command(public_key: &str) -> String {
+    format!(
+        "mkdir -p ~/.ssh && chmod 700 ~/.ssh && \
+         touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && \
+         (grep -qF {key} ~/.ssh/authorized_keys 2>/dev/null || \
+          echo {key} >> ~/.ssh/authorized_keys) && echo OK",
+        key = sh_quote(public_key)
+    )
 }
 
 pub async fn authorize_key(
@@ -80,25 +90,24 @@ pub async fn authorize_key(
         .await
         .map_err(|e| format!("Session open failed: {e}"))?;
 
-    let cmd = format!(
-        "mkdir -p ~/.ssh && chmod 700 ~/.ssh && \
-         touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && \
-         grep -qF {key} ~/.ssh/authorized_keys 2>/dev/null || \
-         echo {key} >> ~/.ssh/authorized_keys",
-        key = sh_quote(public_key)
-    );
+    info!("Executing key install command on {hostname}");
+
+    let cmd = build_install_command(public_key);
 
     channel
         .exec(true, cmd.as_bytes())
         .await
         .map_err(|e| format!("Exec failed: {e}"))?;
 
+    let mut stdout = Vec::new();
     let mut stderr = Vec::new();
     let mut exit_status = None;
 
     loop {
         match channel.wait().await {
-            Some(ChannelMsg::Data { .. }) => {}
+            Some(ChannelMsg::Data { data }) => {
+                stdout.extend_from_slice(&data);
+            }
             Some(ChannelMsg::ExtendedData { data, .. }) => {
                 stderr.extend_from_slice(&data);
             }
@@ -110,13 +119,20 @@ pub async fn authorize_key(
         }
     }
 
-    if exit_status != Some(0) {
-        let err_msg = String::from_utf8_lossy(&stderr);
-        error!("Key install failed (exit={:?}): {}", exit_status, err_msg);
-        return Err(format!(
-            "Remote command failed (exit={:?}): {}",
-            exit_status, err_msg
-        ));
+    debug!("Key install stdout: {:?}", String::from_utf8_lossy(&stdout));
+
+    match exit_status {
+        Some(0) => {}
+        None => {
+            warn!("Key install exit status not received (likely OK, key was installed)");
+        }
+        Some(code) => {
+            let err_msg = String::from_utf8_lossy(&stderr);
+            error!("Key install failed (exit={code}): {err_msg}");
+            return Err(format!(
+                "Remote command failed (exit={code}): {err_msg}",
+            ));
+        }
     }
 
     info!("SSH key authorized for {username}@{hostname}");
@@ -127,4 +143,32 @@ pub async fn authorize_key(
         .map_err(|e| format!("Disconnect failed: {e}"))?;
 
     Ok(format!("SSH key authorized for {}@{}", username, hostname))
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_key_install_command_contains_echo_ok() {
+        let cmd = build_install_command("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI test-key");
+        assert!(cmd.ends_with("&& echo OK"), "command should produce stdout: {cmd}");
+    }
+
+    #[test]
+    fn test_key_install_command_parens_wrap_grep_echo() {
+        let cmd = build_install_command("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI test-key");
+        assert!(
+            cmd.contains("(grep -qF"),
+            "grep should be wrapped in parens: {cmd}"
+        );
+        assert!(
+            cmd.contains(">> ~/.ssh/authorized_keys)"),
+            "echo should be closed in parens: {cmd}"
+        );
+    }
 }

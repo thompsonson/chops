@@ -13,7 +13,7 @@ use tauri_plugin_fs::FsExt;
 use tracing::info;
 use tunnel::TunnelManagerHandle;
 
-#[cfg(desktop)]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use tauri_plugin_updater::UpdaterExt;
 
 pub struct AppState {
@@ -197,7 +197,7 @@ fn updater_endpoint(channel: &str) -> &'static str {
     }
 }
 
-#[cfg(desktop)]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 async fn check_for_update(
     app: tauri::AppHandle,
@@ -230,7 +230,7 @@ async fn check_for_update(
     }
 }
 
-#[cfg(desktop)]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 async fn install_update(app: tauri::AppHandle, channel: Option<String>) -> Result<String, String> {
     use tauri::Emitter;
@@ -489,7 +489,7 @@ pub fn run() {
             .plugin(tauri_plugin_fs::init())
             .plugin(tauri_plugin_notification::init());
 
-        #[cfg(desktop)]
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
             builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
         }

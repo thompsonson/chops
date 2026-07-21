@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tracing::info;
 
 #[cfg(target_os = "android")]
 mod android;
@@ -30,8 +31,12 @@ pub(crate) trait TunnelImpl: Send {
 // ---------------------------------------------------------------------------
 
 fn default_socket_path(host: &str) -> PathBuf {
+    default_socket_path_in(host, Path::new("/tmp"))
+}
+
+fn default_socket_path_in(host: &str, base_dir: &Path) -> PathBuf {
     let safe = host.replace(|c: char| !c.is_alphanumeric() && c != '.' && c != '_', "-");
-    PathBuf::from("/tmp").join(format!("dev-{safe}.sock"))
+    base_dir.join(format!("dev-{safe}.sock"))
 }
 
 fn default_remote_socket_path() -> String {
@@ -132,6 +137,26 @@ mod tests {
             "'/run/user/1000/dev.sock'"
         );
     }
+
+    #[test]
+    fn test_default_socket_path_in_uses_base_dir() {
+        let path = default_socket_path_in("pop-mini", Path::new("/data/data/com.app/files"));
+        assert!(path.starts_with("/data/data/com.app/files"));
+        assert!(path.to_string_lossy().contains("pop-mini"));
+        assert!(path.to_string_lossy().ends_with(".sock"));
+    }
+
+    #[test]
+    fn test_default_socket_path_in_sanitizes_host() {
+        let path = default_socket_path_in("my host!@#", Path::new("/tmp"));
+        let name = path.file_name().unwrap().to_string_lossy();
+        // Dots and alphanumeric are kept; other chars become '-'
+        assert!(name.starts_with("dev-"));
+        assert!(!name.contains('!'));
+        assert!(!name.contains('@'));
+        assert!(!name.contains('#'));
+        assert!(name.ends_with(".sock"));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -170,7 +195,13 @@ impl TunnelManager {
             self.stop(host);
         }
 
-        let socket_path = default_socket_path(hostname);
+        let socket_path = if cfg!(target_os = "android") && !self.app_data.as_os_str().is_empty() {
+            default_socket_path_in(hostname, &self.app_data)
+        } else {
+            default_socket_path(hostname)
+        };
+
+        info!("Creating tunnel for {host} at {:?}", socket_path);
 
         // Lazy cleanup of stale sockets from crashed sessions
         let _ = std::fs::remove_file(&socket_path);

@@ -155,6 +155,11 @@ async fn run_tunnel(
         .map_err(|e| format!("Failed to parse private key: {e}"))?;
     info!("Loaded SSH key for {username}@{hostname}");
 
+    let listener = tokio::net::UnixListener::bind(socket_path)
+        .map_err(|e| format!("Cannot bind {socket_path:?}: {e}"))?;
+
+    info!("Tunnel socket bound at {socket_path:?}");
+
     let config = Arc::new(client::Config::default());
     let handler = TunnelHandler {
         hostname: hostname.to_string(),
@@ -164,16 +169,23 @@ async fn run_tunnel(
 
     let mut handle = client::connect(config, (hostname, port), handler)
         .await
-        .map_err(|e| format!("SSH connect to {hostname}:{port} failed: {e}"))?;
+        .map_err(|e| {
+            let _ = std::fs::remove_file(socket_path);
+            format!("SSH connect to {hostname}:{port} failed: {e}")
+        })?;
 
-    info!("Android tunnel connected to {hostname}:{port}");
+    info!("Android tunnel SSH connected to {hostname}:{port}");
 
     let auth_ok = handle
         .authenticate_publickey(username, Arc::new(key_pair))
         .await
-        .map_err(|e| format!("Auth failed: {e}"))?;
+        .map_err(|e| {
+            let _ = std::fs::remove_file(socket_path);
+            format!("Auth failed: {e}")
+        })?;
 
     if !auth_ok {
+        let _ = std::fs::remove_file(socket_path);
         error!("Tunnel key auth rejected for {username}@{hostname}");
         return Err("Public key authentication rejected by server".to_string());
     }
@@ -181,11 +193,6 @@ async fn run_tunnel(
     info!("Tunnel key auth ok for {username}@{hostname}");
 
     let handle = Arc::new(handle);
-
-    let listener = tokio::net::UnixListener::bind(socket_path)
-        .map_err(|e| format!("Cannot bind {socket_path:?}: {e}"))?;
-
-    info!("Android tunnel listening on {socket_path:?}");
 
     loop {
         tokio::select! {
