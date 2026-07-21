@@ -5,9 +5,9 @@ mod tunnel;
 
 use chops_dev_client::DevClient;
 use mqtt::MqttClient;
-use stt::SttEngine;
 use std::io::Write;
 use std::sync::Arc;
+use stt::SttEngine;
 use tauri::Manager;
 use tauri_plugin_fs::FsExt;
 use tracing::info;
@@ -52,12 +52,10 @@ async fn transcribe_audio(
     samples: Vec<f32>,
 ) -> Result<String, String> {
     let stt = state.stt.clone();
-    let text = tokio::task::spawn_blocking(move || {
-        stt.transcribe(&app, &samples)
-    })
-    .await
-    .map_err(|e| format!("Task failed: {e}"))?
-    .map_err(|e| e.to_string())?;
+    let text = tokio::task::spawn_blocking(move || stt.transcribe(&app, &samples))
+        .await
+        .map_err(|e| format!("Task failed: {e}"))?
+        .map_err(|e| e.to_string())?;
     Ok(text)
 }
 
@@ -103,11 +101,7 @@ async fn send_transcription(
 
 #[tauri::command]
 async fn mqtt_ping(state: tauri::State<'_, AppState>) -> Result<u64, String> {
-    state
-        .mqtt
-        .publish_ping()
-        .await
-        .map_err(|e| e.to_string())
+    state.mqtt.publish_ping().await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -142,7 +136,10 @@ async fn escalation_respond(
 }
 
 #[tauri::command]
-async fn get_status(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
+async fn get_status(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
     let (model_exists, model_path) = stt::model_status(&app);
     Ok(serde_json::json!({
         "mqtt_connected": state.mqtt.is_connected().await,
@@ -208,7 +205,9 @@ async fn check_for_update(
 ) -> Result<serde_json::Value, String> {
     let ch = channel.as_deref().unwrap_or("stable");
     let endpoint = updater_endpoint(ch);
-    let url: url::Url = endpoint.parse().map_err(|e: url::ParseError| e.to_string())?;
+    let url: url::Url = endpoint
+        .parse()
+        .map_err(|e: url::ParseError| e.to_string())?;
 
     let updater = app
         .updater_builder()
@@ -233,15 +232,14 @@ async fn check_for_update(
 
 #[cfg(desktop)]
 #[tauri::command]
-async fn install_update(
-    app: tauri::AppHandle,
-    channel: Option<String>,
-) -> Result<String, String> {
+async fn install_update(app: tauri::AppHandle, channel: Option<String>) -> Result<String, String> {
     use tauri::Emitter;
 
     let ch = channel.as_deref().unwrap_or("stable");
     let endpoint = updater_endpoint(ch);
-    let url: url::Url = endpoint.parse().map_err(|e: url::ParseError| e.to_string())?;
+    let url: url::Url = endpoint
+        .parse()
+        .map_err(|e: url::ParseError| e.to_string())?;
 
     let updater = app
         .updater_builder()
@@ -263,10 +261,13 @@ async fn install_update(
         .download_and_install(
             move |chunk, _total| {
                 downloaded += chunk as u64;
-                let _ = app_handle.emit("update-progress", serde_json::json!({
-                    "downloaded": downloaded,
-                    "total": _total,
-                }));
+                let _ = app_handle.emit(
+                    "update-progress",
+                    serde_json::json!({
+                        "downloaded": downloaded,
+                        "total": _total,
+                    }),
+                );
             },
             || {},
         )
@@ -313,7 +314,10 @@ async fn inspect_session(
     lines: Option<u32>,
 ) -> Result<serde_json::Value, String> {
     let client = state.client_for_host(host.as_deref()).await?;
-    client.inspect(&name, lines, None).await.map_err(|e| e.to_string())
+    client
+        .inspect(&name, lines, None)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -325,7 +329,10 @@ async fn pane_content(
     lines: Option<u32>,
 ) -> Result<serde_json::Value, String> {
     let client = state.client_for_host(host.as_deref()).await?;
-    client.pane_content(&name, &pane, lines).await.map_err(|e| e.to_string())
+    client
+        .pane_content(&name, &pane, lines)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -337,7 +344,10 @@ async fn send_keys(
     keys: String,
 ) -> Result<String, String> {
     let client = state.client_for_host(host.as_deref()).await?;
-    client.send_keys(&name, &pane, &keys).await.map_err(|e| e.to_string())
+    client
+        .send_keys(&name, &pane, &keys)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -348,7 +358,10 @@ async fn start_session(
     layout: Option<String>,
 ) -> Result<String, String> {
     let client = state.client_for_host(host.as_deref()).await?;
-    client.start(&project, layout.as_deref()).await.map_err(|e| e.to_string())
+    client
+        .start(&project, layout.as_deref())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -371,9 +384,7 @@ async fn tunnel_status(
 }
 
 #[tauri::command]
-async fn list_hosts(
-    state: tauri::State<'_, AppState>,
-) -> Result<Vec<String>, String> {
+async fn list_hosts(state: tauri::State<'_, AppState>) -> Result<Vec<String>, String> {
     let mut mgr = state.tunnel_mgr.0.lock().await;
     Ok(mgr.status().into_iter().map(|s| s.host).collect())
 }
@@ -382,10 +393,7 @@ async fn list_hosts(
 
 #[cfg(target_os = "android")]
 #[tauri::command]
-async fn ssh_generate_key(
-    app: tauri::AppHandle,
-    host: String,
-) -> Result<String, String> {
+async fn ssh_generate_key(app: tauri::AppHandle, host: String) -> Result<String, String> {
     let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
     let (priv_key, pub_key) = tunnel::generate_ssh_key()?;
     let alias = host.replace('.', "_");
@@ -395,10 +403,7 @@ async fn ssh_generate_key(
 
 #[cfg(target_os = "android")]
 #[tauri::command]
-async fn ssh_key_status(
-    app: tauri::AppHandle,
-    host: String,
-) -> Result<bool, String> {
+async fn ssh_key_status(app: tauri::AppHandle, host: String) -> Result<bool, String> {
     let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
     let alias = host.replace('.', "_");
     Ok(tunnel::has_ssh_key(&app_data, &alias))
@@ -406,14 +411,39 @@ async fn ssh_key_status(
 
 #[cfg(target_os = "android")]
 #[tauri::command]
-async fn ssh_remove_key(
-    app: tauri::AppHandle,
-    host: String,
-) -> Result<(), String> {
+async fn ssh_remove_key(app: tauri::AppHandle, host: String) -> Result<(), String> {
     let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
     let alias = host.replace('.', "_");
     tunnel::delete_ssh_key(&app_data, &alias);
     Ok(())
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+async fn ssh_authorize_key(
+    app: tauri::AppHandle,
+    hostname: String,
+    port: u16,
+    username: String,
+    password: String,
+) -> Result<String, String> {
+    let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let alias = hostname.replace('.', "_");
+
+    let public_key = if tunnel::has_ssh_key(&app_data, &alias) {
+        tunnel::load_ssh_public_key(&app_data, &alias)?
+    } else {
+        let (priv_key, pub_key) = tunnel::generate_ssh_key()?;
+        tunnel::store_ssh_key(&app_data, &alias, &priv_key)?;
+        pub_key
+    };
+
+    let result = tunnel::authorize_key(&app_data, &hostname, port, &username, &password, &public_key).await?;
+
+    tunnel::store_ssh_username(&app_data, &alias, &username)?;
+    tunnel::store_ssh_port(&app_data, &alias, port)?;
+
+    Ok(result)
 }
 
 // -- Log export -------------------------------------------------------------
@@ -467,9 +497,9 @@ pub fn run() {
                         .with_env_filter(
                             tracing_subscriber::EnvFilter::builder()
                                 .with_default_directive(
-                                    tracing_subscriber::filter::LevelFilter::INFO.into()
+                                    tracing_subscriber::filter::LevelFilter::INFO.into(),
                                 )
-                                .parse_lossy("wry=debug")
+                                .parse_lossy("wry=debug"),
                         )
                         .with_writer(log_file)
                         .with_ansi(false)
@@ -479,9 +509,9 @@ pub fn run() {
                         .with_env_filter(
                             tracing_subscriber::EnvFilter::builder()
                                 .with_default_directive(
-                                    tracing_subscriber::filter::LevelFilter::INFO.into()
+                                    tracing_subscriber::filter::LevelFilter::INFO.into(),
                                 )
-                                .parse_lossy("wry=debug")
+                                .parse_lossy("wry=debug"),
                         )
                         .with_ansi(false)
                         .init();
@@ -499,7 +529,9 @@ pub fn run() {
                     let port = mqtt_port();
                     let app_handle = app.handle().clone();
                     tauri::async_runtime::spawn(async move {
-                        if let Err(e) = mqtt_for_connect.connect(DEFAULT_MQTT_HOST, port, app_handle).await
+                        if let Err(e) = mqtt_for_connect
+                            .connect(DEFAULT_MQTT_HOST, port, app_handle)
+                            .await
                         {
                             info!("MQTT auto-connect failed (will retry on demand): {e}");
                         }
@@ -510,11 +542,11 @@ pub fn run() {
 
                 #[cfg(target_os = "android")]
                 {
-                    let app_data = app.path().app_data_dir().ok();
-                    if let Some(path) = app_data {
-                        let mut mgr = tokio::runtime::Handle::current()
-                            .block_on(tunnel_mgr.0.lock());
-                        mgr.set_app_data(path);
+                    let tunnel_mgr = tunnel_mgr.clone();
+                    if let Ok(path) = app.path().app_data_dir() {
+                        tauri::async_runtime::spawn(async move {
+                            tunnel_mgr.0.lock().await.set_app_data(path);
+                        });
                     }
                 }
 
@@ -546,6 +578,8 @@ pub fn run() {
                 ssh_key_status,
                 #[cfg(target_os = "android")]
                 ssh_remove_key,
+                #[cfg(target_os = "android")]
+                ssh_authorize_key,
                 get_logs,
                 clear_logs,
             ])
@@ -561,7 +595,10 @@ pub fn run() {
             "Unknown panic (no message)".to_string()
         };
         // Write to stderr (visible in logcat on Android)
-        let _ = writeln!(std::io::stderr(), "--- Tauri INIT PANIC ---\n{msg}\n--- END PANIC ---");
+        let _ = writeln!(
+            std::io::stderr(),
+            "--- Tauri INIT PANIC ---\n{msg}\n--- END PANIC ---"
+        );
         // Also try to write to chops.log (might not be initialized yet)
         if let Some(path) = log::PANIC_LOG_PATH.get() {
             if let Ok(mut f) = std::fs::OpenOptions::new()
