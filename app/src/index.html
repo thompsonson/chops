@@ -227,19 +227,17 @@
     <div class="modal">
       <h2>Connect to <span id="provision-hostname"></span></h2>
       <p style="font-size:0.8rem;color:var(--muted);margin-bottom:0.5rem;">
-        Generating SSH key for password-less access. Copy the command below and run it on your remote server:
+        Enter credentials to authorize your SSH key on the remote server (like <code>ssh-copy-id</code>):
       </p>
-      <div class="provision-key-box">
-        <pre id="provision-public-key" style="font-size:0.65rem;white-space:pre-wrap;word-break:break-all;background:var(--bg);padding:0.5rem;border-radius:4px;border:1px solid var(--border);margin-bottom:0.5rem;"></pre>
-        <button class="tab-action-btn" id="provision-copy-key" style="margin-bottom:0.5rem;">Copy Public Key</button>
-      </div>
-      <p style="font-size:0.75rem;color:var(--muted);">
-        Run this on your server:<br>
-        <code id="provision-cmd" style="color:var(--ok);"></code>
-      </p>
+      <label for="provision-username">Username</label>
+      <input type="text" id="provision-username" placeholder="mt" value="mt">
+      <label for="provision-password">Password</label>
+      <input type="password" id="provision-password" placeholder="SSH password">
+      <div id="provision-error" style="color:var(--error);font-size:0.75rem;margin-top:0.25rem;display:none;"></div>
+      <div id="provision-spinner" style="font-size:0.75rem;color:var(--muted);margin-top:0.25rem;display:none;">Authorizing...</div>
       <div class="modal-buttons">
         <button class="btn-cancel" id="provision-cancel">Cancel</button>
-        <button id="provision-done" style="background:var(--ok);">Done — Add Host</button>
+        <button id="provision-done" style="background:var(--ok);">Authorize &amp; Add Host</button>
       </div>
     </div>
   </div>

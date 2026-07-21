@@ -1,20 +1,37 @@
-use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::sync::Arc;
 
 use crate::tunnel::secure_key;
 use crate::tunnel::TunnelImpl;
+use russh::client;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 // ---------------------------------------------------------------------------
-// AndroidTunnel — bundled SSH binary + temp key file
-// Uses the same ssh -NL approach as desktop, but with a bundled SSH binary
+// SSH client handler — accepts any server key
+// ---------------------------------------------------------------------------
+
+struct TunnelHandler;
+
+#[async_trait::async_trait]
+impl client::Handler for TunnelHandler {
+    type Error = anyhow::Error;
+
+    async fn check_server_key(
+        &mut self,
+        _server_public_key: &ssh_key::PublicKey,
+    ) -> Result<bool, Self::Error> {
+        Ok(true)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// AndroidTunnel — in-process SSH tunnel via russh
 // ---------------------------------------------------------------------------
 
 pub(crate) struct AndroidTunnel {
-    child: Option<Child>,
     socket_path: PathBuf,
-    key_path: PathBuf,
+    thread: Option<std::thread::JoinHandle<()>>,
+    shutdown: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
 impl AndroidTunnel {
@@ -25,74 +42,43 @@ impl AndroidTunnel {
         socket_path: &Path,
     ) -> Result<Self, String> {
         let alias = hostname.replace('.', "_");
-        let app_data = app_data.to_path_buf();
+        let key_bytes = secure_key::load_ssh_key(app_data, &alias)?;
 
-        // Decrypt the stored SSH key
-        let key_bytes = secure_key::load_ssh_key(&app_data, &alias)
-            .map_err(|e| format!("Key load failed: {e}"))?;
+        let sock = socket_path.to_path_buf();
+        let host = hostname.to_string();
+        let remote = remote_path.to_string();
 
-        // Write key to temp file in app data dir (protected by FBE)
-        let key_path = app_data.join(format!("ssh-key-{alias}"));
-        fs::write(&key_path, &key_bytes)
-            .map_err(|e| format!("Cannot write key file: {e}"))?;
-        fs::set_permissions(&key_path, fs::Permissions::from_mode(0o600))
-            .map_err(|e| format!("Cannot set key permissions: {e}"))?;
+        // Clean up stale socket from crashed sessions
+        let _ = std::fs::remove_file(&sock);
 
-        // Lazy cleanup of stale sockets from crashed sessions
-        let _ = fs::remove_file(socket_path);
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
-        // Find SSH binary: bundled path > system PATH
-        let ssh_path = find_ssh_binary(&app_data);
+        let thread = std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("AndroidTunnel tokio runtime");
 
-        let mut child = Command::new(&ssh_path)
-            .args([
-                "-N",
-                "-o",
-                "StrictHostKeyChecking=accept-new",
-                "-o",
-                "UserKnownHostsFile=/dev/null",
-                "-i",
-                &key_path.to_string_lossy(),
-                "-L",
-                &format!("{}:{}", socket_path.display(), remote_path),
-                hostname,
-            ])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|e| format!("SSH binary at {ssh_path}: {e}"))?;
-
-        // Brief wait for the socket to appear
-        for _ in 0..50 {
-            if socket_path.exists() {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(100));
-        }
-
-        if !socket_path.exists() {
-            let _ = child.kill();
-            return Err(format!(
-                "SSH tunnel to {hostname} did not create socket (check auth and that socat is on remote)"
-            ));
-        }
+            rt.block_on(async move {
+                if let Err(e) = run_tunnel(&key_bytes, &host, &remote, &sock, shutdown_rx).await {
+                    // Logged via tracing if available, otherwise silently dropped
+                    let _ = e;
+                }
+            });
+        });
 
         Ok(Self {
-            child: Some(child),
-            socket_path: socket_path.to_path_buf(),
-            key_path,
+            socket_path: sock,
+            thread: Some(thread),
+            shutdown: Some(shutdown_tx),
         })
     }
 }
 
 impl TunnelImpl for AndroidTunnel {
     fn is_alive(&mut self) -> bool {
-        match self.child.as_mut() {
-            Some(child) => match child.try_wait() {
-                Ok(None) => true,
-                _ => false,
-            },
+        match &self.thread {
+            Some(t) => !t.is_finished(),
             None => false,
         }
     }
@@ -102,30 +88,139 @@ impl TunnelImpl for AndroidTunnel {
     }
 
     fn kill(self: Box<Self>) {
-        if let Some(mut child) = self.child {
-            let _ = child.kill();
-            let _ = child.wait();
+        if let Some(tx) = self.shutdown {
+            let _ = tx.send(());
         }
-        let _ = fs::remove_file(&self.socket_path);
-        let _ = fs::remove_file(&self.key_path);
+        let _ = drop(self.thread);
+        let _ = std::fs::remove_file(&self.socket_path);
     }
 }
 
-/// Find the SSH binary. Tries bundled location first, then system PATH.
-fn find_ssh_binary(app_data: &Path) -> String {
-    let bundled = app_data.join("ssh").join("ssh");
-    if bundled.exists() {
-        return bundled.to_string_lossy().to_string();
+// ---------------------------------------------------------------------------
+// Tunnel runtime — lives on a dedicated tokio runtime in a background thread
+// ---------------------------------------------------------------------------
+
+async fn run_tunnel(
+    key_bytes: &[u8],
+    hostname: &str,
+    remote_path: &str,
+    socket_path: &Path,
+    mut shutdown: tokio::sync::oneshot::Receiver<()>,
+) -> Result<(), String> {
+    let key_str =
+        std::str::from_utf8(key_bytes).map_err(|_| "Invalid private key UTF-8".to_string())?;
+
+    let private_key = russh_keys::key::PrivateKey::from_openssh(key_str)
+        .map_err(|e| format!("Failed to parse private key: {e}"))?;
+    let key_pair: russh_keys::key::KeyPair = private_key.into();
+
+    let config = Arc::new(client::Config::default());
+    let handler = TunnelHandler;
+
+    let mut handle = client::connect(config, (hostname, 22u16), handler)
+        .await
+        .map_err(|e| format!("SSH connect to {hostname}:22 failed: {e}"))?;
+
+    let auth_ok = handle
+        .authenticate_publickey("mt", Arc::new(key_pair))
+        .await
+        .map_err(|e| format!("Auth failed: {e}"))?;
+
+    if !auth_ok {
+        return Err("Public key authentication rejected by server".to_string());
     }
-    // Fallback for Termux or custom setups
-    for path in &[
-        "/data/data/com.termux/files/usr/bin/ssh",
-        "/system/bin/ssh",
-        "/usr/bin/ssh",
-    ] {
-        if Path::new(path).exists() {
-            return path.to_string();
+
+    let listener = tokio::net::UnixListener::bind(socket_path)
+        .map_err(|e| format!("Cannot bind {socket_path:?}: {e}"))?;
+
+    loop {
+        tokio::select! {
+            accept = listener.accept() => {
+                match accept {
+                    Ok((stream, _)) => {
+                        let h = handle.clone();
+                        let rp = remote_path.to_string();
+                        tokio::spawn(async move {
+                            if let Err(e) = forward_connection(h, stream, &rp).await {
+                                let _ = e;
+                            }
+                        });
+                    }
+                    Err(_) => break,
+                }
+            }
+            _ = &mut shutdown => break,
         }
     }
-    "ssh".to_string() // hope it's on PATH
+
+    let _ = handle.close().await;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Per-connection forwarding:  local Unix socket ↔ SSH exec'd socat
+// ---------------------------------------------------------------------------
+
+async fn forward_connection(
+    mut handle: client::Handle<TunnelHandler>,
+    mut local: tokio::net::UnixStream,
+    remote_path: &str,
+) -> Result<(), String> {
+    let mut session = handle
+        .open_session()
+        .await
+        .map_err(|e| format!("Open session: {e}"))?;
+
+    let cmd = format!("socat STDIO UNIX-CONNECT:{}", sh_quote(remote_path));
+    session
+        .exec(true, cmd.as_bytes())
+        .await
+        .map_err(|e| format!("Exec failed: {e}"))?;
+
+    let (mut local_reader, mut local_writer) = local.split();
+
+    let mut buf = vec![0u8; 16384];
+
+    loop {
+        tokio::select! {
+            result = local_reader.read(&mut buf) => {
+                match result {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        if session.data(&buf[..n]).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+            }
+            event = session.wait() => {
+                match event {
+                    Some(client::SessionEvent::Stdout { data }) => {
+                        if local_writer.write_all(&data).await.is_err() {
+                            break;
+                        }
+                    }
+                    Some(client::SessionEvent::Eof) | None => break,
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    let _ = session.close().await;
+    Ok(())
+}
+
+fn sh_quote(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('\'');
+    for ch in s.chars() {
+        if ch == '\'' {
+            out.push_str("'\\''");
+        } else {
+            out.push(ch);
+        }
+    }
+    out.push('\'');
+    out
 }

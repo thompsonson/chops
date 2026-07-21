@@ -5,9 +5,13 @@ use tokio::sync::Mutex;
 
 #[cfg(target_os = "android")]
 mod android;
+#[cfg(target_os = "android")]
+mod authorize;
 #[cfg(not(target_os = "android"))]
 mod desktop;
 mod secure_key;
+#[cfg(target_os = "android")]
+pub use authorize::*;
 #[allow(unused_imports)]
 pub use secure_key::*;
 
@@ -93,12 +97,17 @@ impl TunnelManager {
 
         #[cfg(not(target_os = "android"))]
         let tunnel: Box<dyn TunnelImpl> = Box::new(desktop::DesktopTunnel::open(
-            hostname, &remote_path, &socket_path,
+            hostname,
+            &remote_path,
+            &socket_path,
         )?);
 
         #[cfg(target_os = "android")]
         let tunnel: Box<dyn TunnelImpl> = Box::new(android::AndroidTunnel::open(
-            &self.app_data, hostname, &remote_path, &socket_path,
+            &self.app_data,
+            hostname,
+            &remote_path,
+            &socket_path,
         )?);
 
         self.tunnels.insert(host.to_string(), tunnel);

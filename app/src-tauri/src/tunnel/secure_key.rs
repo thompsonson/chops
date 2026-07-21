@@ -100,15 +100,14 @@ pub fn decrypt_blob(app_data: &Path, encrypted: &[u8]) -> Result<Vec<u8>, String
 pub fn store_ssh_key(app_data: &Path, alias: &str, private_key: &[u8]) -> Result<(), String> {
     let encrypted = encrypt_blob(app_data, private_key)?;
     let path = app_data.join(format!("{KEY_ALIAS}-{alias}.enc"));
-    std::fs::write(&path, &encrypted)
-        .map_err(|e| format!("Cannot write encrypted key: {e}"))
+    std::fs::write(&path, &encrypted).map_err(|e| format!("Cannot write encrypted key: {e}"))
 }
 
 /// Load and decrypt an SSH private key.
 pub fn load_ssh_key(app_data: &Path, alias: &str) -> Result<Vec<u8>, String> {
     let path = app_data.join(format!("{KEY_ALIAS}-{alias}.enc"));
-    let encrypted = std::fs::read(&path)
-        .map_err(|e| format!("Cannot read encrypted key for {alias}: {e}"))?;
+    let encrypted =
+        std::fs::read(&path).map_err(|e| format!("Cannot read encrypted key for {alias}: {e}"))?;
     decrypt_blob(app_data, &encrypted)
 }
 
@@ -122,4 +121,17 @@ pub fn has_ssh_key(app_data: &Path, alias: &str) -> bool {
 pub fn delete_ssh_key(app_data: &Path, alias: &str) {
     let path = app_data.join(format!("{KEY_ALIAS}-{alias}.enc"));
     let _ = std::fs::remove_file(&path);
+}
+
+/// Load the public key in OpenSSH format from the stored private key.
+pub fn load_ssh_public_key(app_data: &Path, alias: &str) -> Result<String, String> {
+    let private_bytes = load_ssh_key(app_data, alias)?;
+    let pem = std::str::from_utf8(&private_bytes)
+        .map_err(|_| "Invalid UTF-8 in private key".to_string())?;
+    let private_key = ssh_key::PrivateKey::from_openssh(pem)
+        .map_err(|e| format!("Failed to parse private key: {e}"))?;
+    private_key
+        .public_key()
+        .to_openssh()
+        .map_err(|e| format!("Failed to serialize public key: {e}"))
 }

@@ -2,7 +2,7 @@
 // Reads hosts from localStorage, groups sessions by host
 
 import { dispatch } from './SessionAction.js';
-import { showToast } from '../app.js';
+import { showToast, tauriInvoke } from '../app.js';
 
 const HOSTS_KEY = 'chops-hosts';
 
@@ -165,8 +165,9 @@ async function stopHostSession(host, name) {
 // --- Android SSH provisioning ---
 
 export async function isAndroid() {
+  if (!tauriInvoke) return false;
   try {
-    await dispatch({ type: 'ssh_key_status', host: '__test__' });
+    await tauriInvoke('ssh_key_status', { host: '__test__' });
     return true;
   } catch {
     return false;
@@ -175,62 +176,89 @@ export async function isAndroid() {
 
 export async function provisionAndroidHost(host) {
   const alias = host.replace('.', '_');
-  const hasKey = await dispatch({ type: 'ssh_key_status', host: alias });
+  const hasKey = await tauriInvoke('ssh_key_status', { host: alias });
   if (hasKey) {
     addHost(host);
     return true;
   }
 
-  // Generate key — returns public key string
-  const pubKey = await dispatch({ type: 'ssh_generate_key', host: alias });
-
-  // Show provision dialog
+  // Show password-auth dialog
   const overlay = document.getElementById('provision-overlay');
   const hostnameEl = document.getElementById('provision-hostname');
-  const pubKeyEl = document.getElementById('provision-public-key');
-  const cmdEl = document.getElementById('provision-cmd');
-  const copyBtn = document.getElementById('provision-copy-key');
+  const usernameEl = document.getElementById('provision-username');
+  const passwordEl = document.getElementById('provision-password');
+  const errorEl = document.getElementById('provision-error');
+  const spinnerEl = document.getElementById('provision-spinner');
   const cancelBtn = document.getElementById('provision-cancel');
   const doneBtn = document.getElementById('provision-done');
 
   hostnameEl.textContent = host;
-  pubKeyEl.textContent = pubKey;
-  cmdEl.textContent = `echo '${pubKey}' >> ~/.ssh/authorized_keys`;
+  usernameEl.value = 'mt';
+  passwordEl.value = '';
+  errorEl.style.display = 'none';
+  spinnerEl.style.display = 'none';
+  doneBtn.disabled = false;
 
   overlay.classList.add('visible');
+  usernameEl.focus();
+
+  function setLoading(loading) {
+    doneBtn.disabled = loading;
+    spinnerEl.style.display = loading ? '' : 'none';
+    cancelBtn.disabled = loading;
+  }
 
   return new Promise((resolve) => {
     const cleanup = () => {
       overlay.classList.remove('visible');
-      copyBtn.removeEventListener('click', onCopy);
       cancelBtn.removeEventListener('click', onCancel);
       doneBtn.removeEventListener('click', onDone);
+      passwordEl.removeEventListener('keydown', onKeydown);
     };
-
-    function onCopy() {
-      navigator.clipboard.writeText(pubKey).then(() => {
-        showToast('Public key copied', 'ok');
-      }).catch(() => {
-        // Fallback: select the text
-        pubKeyEl.select();
-        document.execCommand('copy');
-      });
-    }
 
     function onCancel() {
       cleanup();
       resolve(false);
     }
 
-    function onDone() {
-      addHost(host);
-      cleanup();
-      resolve(true);
+    async function onDone() {
+      const username = usernameEl.value.trim() || 'mt';
+      const password = passwordEl.value;
+      if (!password) {
+        errorEl.textContent = 'Password is required';
+        errorEl.style.display = '';
+        return;
+      }
+
+      setLoading(true);
+      errorEl.style.display = 'none';
+
+      try {
+        const result = await tauriInvoke('ssh_authorize_key', {
+          hostname: host,
+          port: 22,
+          username,
+          password,
+        });
+        addHost(host);
+        cleanup();
+        showToast(result || 'Key authorized', 'ok');
+        resolve(true);
+      } catch (e) {
+        errorEl.textContent = String(e);
+        errorEl.style.display = '';
+        setLoading(false);
+      }
     }
 
-    copyBtn.addEventListener('click', onCopy);
+    function onKeydown(e) {
+      if (e.key === 'Enter') onDone();
+      if (e.key === 'Escape') onCancel();
+    }
+
     cancelBtn.addEventListener('click', onCancel);
     doneBtn.addEventListener('click', onDone);
+    passwordEl.addEventListener('keydown', onKeydown);
   });
 }
 

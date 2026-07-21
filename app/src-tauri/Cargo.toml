@@ -32,8 +32,9 @@ rand = "0.8"
 tauri-plugin-updater = "2"
 
 [target.'cfg(target_os = "android")'.dependencies]
-# russh would go here when the Handler-based tunnel is implemented
-# For now Android uses bundled SSH binary via std::process::Command
+russh = "0.44"
+russh-keys = "0.44"
+async-trait = "0.1"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
