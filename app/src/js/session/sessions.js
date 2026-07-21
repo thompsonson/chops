@@ -187,6 +187,7 @@ export async function provisionAndroidHost(host) {
   const hostnameEl = document.getElementById('provision-hostname');
   const usernameEl = document.getElementById('provision-username');
   const passwordEl = document.getElementById('provision-password');
+  const portEl = document.getElementById('provision-port');
   const errorEl = document.getElementById('provision-error');
   const spinnerEl = document.getElementById('provision-spinner');
   const cancelBtn = document.getElementById('provision-cancel');
@@ -195,6 +196,7 @@ export async function provisionAndroidHost(host) {
   hostnameEl.textContent = host;
   usernameEl.value = 'mt';
   passwordEl.value = '';
+  portEl.value = '22';
   errorEl.style.display = 'none';
   spinnerEl.style.display = 'none';
   doneBtn.disabled = false;
@@ -211,6 +213,7 @@ export async function provisionAndroidHost(host) {
   return new Promise((resolve) => {
     const cleanup = () => {
       overlay.classList.remove('visible');
+      passwordEl.value = '';
       cancelBtn.removeEventListener('click', onCancel);
       doneBtn.removeEventListener('click', onDone);
       passwordEl.removeEventListener('keydown', onKeydown);
@@ -234,9 +237,10 @@ export async function provisionAndroidHost(host) {
       errorEl.style.display = 'none';
 
       try {
+        const port = parseInt(portEl.value) || 22;
         const result = await tauriInvoke('ssh_authorize_key', {
           hostname: host,
-          port: 22,
+          port,
           username,
           password,
         });

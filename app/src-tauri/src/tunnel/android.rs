@@ -118,7 +118,9 @@ impl TunnelImpl for AndroidTunnel {
         if let Some(tx) = self.shutdown {
             let _ = tx.send(());
         }
-        drop(self.thread);
+        if let Some(t) = self.thread {
+            std::thread::spawn(move || drop(t.join()));
+        }
         let _ = std::fs::remove_file(&self.socket_path);
     }
 }
@@ -137,13 +139,11 @@ async fn run_tunnel(
     socket_path: &Path,
     mut shutdown: tokio::sync::oneshot::Receiver<()>,
 ) -> Result<(), String> {
-    // Write key to temp file for russh-keys (only API is file-based)
-    let mut tmp = std::env::temp_dir();
-    tmp.push(format!("chops-key-{}", std::process::id()));
-    std::fs::write(&tmp, key_bytes).map_err(|e| format!("Temp key write: {e}"))?;
-    let key_pair = russh::keys::load_secret_key(&tmp, None)
+    let key_str =
+        std::str::from_utf8(key_bytes).map_err(|_| "Invalid private key UTF-8".to_string())?;
+    let key_pair = russh::keys::decode_secret_key(key_str, None)
         .map_err(|e| format!("Failed to parse private key: {e}"))?;
-    let _ = std::fs::remove_file(&tmp);
+    info!("Loaded SSH key for {username}@{hostname}");
 
     let config = Arc::new(client::Config::default());
     let handler = TunnelHandler {
@@ -256,4 +256,23 @@ async fn forward_connection(
 
     let _ = channel.close().await;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_decode_secret_key_valid_ed25519() {
+        let (key_bytes, _) = crate::tunnel::secure_key::generate_ssh_key().unwrap();
+        let key_str = std::str::from_utf8(&key_bytes).unwrap();
+        let result = russh::keys::decode_secret_key(key_str, None);
+        assert!(result.is_ok(), "valid ED25519 key should parse");
+    }
+
+    #[test]
+    fn test_decode_secret_key_garbage() {
+        let result = russh::keys::decode_secret_key("not-a-valid-key", None);
+        assert!(result.is_err(), "garbage should not parse");
+    }
 }
