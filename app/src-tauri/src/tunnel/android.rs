@@ -2,15 +2,23 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::tunnel::secure_key;
+use crate::tunnel::sh_quote;
 use crate::tunnel::TunnelImpl;
 use russh::client;
+use russh::keys::key;
+use russh::{ChannelMsg, Disconnect};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tracing::{debug, error, info};
 
 // ---------------------------------------------------------------------------
-// SSH client handler — accepts any server key
+// SSH client handler
 // ---------------------------------------------------------------------------
 
-struct TunnelHandler;
+struct TunnelHandler {
+    hostname: String,
+    port: u16,
+    app_data: PathBuf,
+}
 
 #[async_trait::async_trait]
 impl client::Handler for TunnelHandler {
@@ -18,8 +26,24 @@ impl client::Handler for TunnelHandler {
 
     async fn check_server_key(
         &mut self,
-        _server_public_key: &ssh_key::PublicKey,
+        server_public_key: &key::PublicKey,
     ) -> Result<bool, Self::Error> {
+        let known_hosts = self.app_data.join("known_hosts");
+        if russh::keys::check_known_hosts_path(
+            &self.hostname,
+            self.port,
+            server_public_key,
+            &known_hosts,
+        )? {
+            return Ok(true);
+        }
+        russh::keys::learn_known_hosts_path(
+            &self.hostname,
+            self.port,
+            server_public_key,
+            &known_hosts,
+        )?;
+        info!("Learned host key for {}:{}", self.hostname, self.port);
         Ok(true)
     }
 }
@@ -43,12 +67,14 @@ impl AndroidTunnel {
     ) -> Result<Self, String> {
         let alias = hostname.replace('.', "_");
         let key_bytes = secure_key::load_ssh_key(app_data, &alias)?;
+        let username = secure_key::load_ssh_username(app_data, &alias);
+        let port = secure_key::load_ssh_port(app_data, &alias);
 
         let sock = socket_path.to_path_buf();
         let host = hostname.to_string();
         let remote = remote_path.to_string();
+        let app_data = app_data.to_path_buf();
 
-        // Clean up stale socket from crashed sessions
         let _ = std::fs::remove_file(&sock);
 
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
@@ -60,9 +86,10 @@ impl AndroidTunnel {
                 .expect("AndroidTunnel tokio runtime");
 
             rt.block_on(async move {
-                if let Err(e) = run_tunnel(&key_bytes, &host, &remote, &sock, shutdown_rx).await {
-                    // Logged via tracing if available, otherwise silently dropped
-                    let _ = e;
+                if let Err(e) =
+                    run_tunnel(app_data, &key_bytes, &username, &host, port, &remote, &sock, shutdown_rx).await
+                {
+                    error!("Android tunnel to {host}:{port} failed: {e}");
                 }
             });
         });
@@ -91,7 +118,7 @@ impl TunnelImpl for AndroidTunnel {
         if let Some(tx) = self.shutdown {
             let _ = tx.send(());
         }
-        let _ = drop(self.thread);
+        drop(self.thread);
         let _ = std::fs::remove_file(&self.socket_path);
     }
 }
@@ -101,37 +128,52 @@ impl TunnelImpl for AndroidTunnel {
 // ---------------------------------------------------------------------------
 
 async fn run_tunnel(
+    app_data: PathBuf,
     key_bytes: &[u8],
+    username: &str,
     hostname: &str,
+    port: u16,
     remote_path: &str,
     socket_path: &Path,
     mut shutdown: tokio::sync::oneshot::Receiver<()>,
 ) -> Result<(), String> {
-    let key_str =
-        std::str::from_utf8(key_bytes).map_err(|_| "Invalid private key UTF-8".to_string())?;
-
-    let private_key = russh_keys::key::PrivateKey::from_openssh(key_str)
+    // Write key to temp file for russh-keys (only API is file-based)
+    let mut tmp = std::env::temp_dir();
+    tmp.push(format!("chops-key-{}", std::process::id()));
+    std::fs::write(&tmp, key_bytes).map_err(|e| format!("Temp key write: {e}"))?;
+    let key_pair = russh::keys::load_secret_key(&tmp, None)
         .map_err(|e| format!("Failed to parse private key: {e}"))?;
-    let key_pair: russh_keys::key::KeyPair = private_key.into();
+    let _ = std::fs::remove_file(&tmp);
 
     let config = Arc::new(client::Config::default());
-    let handler = TunnelHandler;
+    let handler = TunnelHandler {
+        hostname: hostname.to_string(),
+        port,
+        app_data,
+    };
 
-    let mut handle = client::connect(config, (hostname, 22u16), handler)
+    let mut handle = client::connect(config, (hostname, port), handler)
         .await
-        .map_err(|e| format!("SSH connect to {hostname}:22 failed: {e}"))?;
+        .map_err(|e| format!("SSH connect to {hostname}:{port} failed: {e}"))?;
+
+    info!("Android tunnel connected to {hostname}:{port}");
 
     let auth_ok = handle
-        .authenticate_publickey("mt", Arc::new(key_pair))
+        .authenticate_publickey(username, Arc::new(key_pair))
         .await
         .map_err(|e| format!("Auth failed: {e}"))?;
 
     if !auth_ok {
+        error!("Tunnel key auth rejected for {username}@{hostname}");
         return Err("Public key authentication rejected by server".to_string());
     }
 
+    info!("Tunnel key auth ok for {username}@{hostname}");
+
     let listener = tokio::net::UnixListener::bind(socket_path)
         .map_err(|e| format!("Cannot bind {socket_path:?}: {e}"))?;
+
+    info!("Android tunnel listening on {socket_path:?}");
 
     loop {
         tokio::select! {
@@ -142,18 +184,22 @@ async fn run_tunnel(
                         let rp = remote_path.to_string();
                         tokio::spawn(async move {
                             if let Err(e) = forward_connection(h, stream, &rp).await {
-                                let _ = e;
+                                debug!("Tunnel forward error: {e}");
                             }
                         });
                     }
-                    Err(_) => break,
+                    Err(e) => {
+                        error!("Tunnel accept error: {e}");
+                        break;
+                    }
                 }
             }
             _ = &mut shutdown => break,
         }
     }
 
-    let _ = handle.close().await;
+    info!("Tunnel shutting down: {hostname}");
+    let _ = handle.disconnect(Disconnect::ByApplication, "", "English").await;
     Ok(())
 }
 
@@ -166,19 +212,20 @@ async fn forward_connection(
     mut local: tokio::net::UnixStream,
     remote_path: &str,
 ) -> Result<(), String> {
-    let mut session = handle
-        .open_session()
+    debug!("Forwarding connection to {remote_path}");
+
+    let channel = handle
+        .channel_open_session()
         .await
         .map_err(|e| format!("Open session: {e}"))?;
 
     let cmd = format!("socat STDIO UNIX-CONNECT:{}", sh_quote(remote_path));
-    session
+    channel
         .exec(true, cmd.as_bytes())
         .await
         .map_err(|e| format!("Exec failed: {e}"))?;
 
     let (mut local_reader, mut local_writer) = local.split();
-
     let mut buf = vec![0u8; 16384];
 
     loop {
@@ -187,40 +234,26 @@ async fn forward_connection(
                 match result {
                     Ok(0) | Err(_) => break,
                     Ok(n) => {
-                        if session.data(&buf[..n]).await.is_err() {
+                        if channel.data(&buf[..n]).await.is_err() {
                             break;
                         }
                     }
                 }
             }
-            event = session.wait() => {
+            event = channel.wait() => {
                 match event {
-                    Some(client::SessionEvent::Stdout { data }) => {
-                        if local_writer.write_all(&data).await.is_err() {
+                    Some(ChannelMsg::Data { ref data }) => {
+                        if local_writer.write_all(data).await.is_err() {
                             break;
                         }
                     }
-                    Some(client::SessionEvent::Eof) | None => break,
+                    Some(ChannelMsg::Eof) | None => break,
                     _ => {}
                 }
             }
         }
     }
 
-    let _ = session.close().await;
+    let _ = channel.close().await;
     Ok(())
-}
-
-fn sh_quote(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 2);
-    out.push('\'');
-    for ch in s.chars() {
-        if ch == '\'' {
-            out.push_str("'\\''");
-        } else {
-            out.push(ch);
-        }
-    }
-    out.push('\'');
-    out
 }

@@ -135,3 +135,30 @@ pub fn load_ssh_public_key(app_data: &Path, alias: &str) -> Result<String, Strin
         .to_openssh()
         .map_err(|e| format!("Failed to serialize public key: {e}"))
 }
+
+/// Store the SSH username for a host alias.
+pub fn store_ssh_username(app_data: &Path, alias: &str, username: &str) -> Result<(), String> {
+    let path = app_data.join(format!("{KEY_ALIAS}-{alias}.user"));
+    std::fs::write(&path, username).map_err(|e| format!("Cannot write username: {e}"))
+}
+
+/// Load the SSH username for a host alias. Returns "mt" if not found.
+pub fn load_ssh_username(app_data: &Path, alias: &str) -> String {
+    let path = app_data.join(format!("{KEY_ALIAS}-{alias}.user"));
+    std::fs::read_to_string(&path).unwrap_or_else(|_| "mt".to_string())
+}
+
+/// Store the SSH port for a host alias.
+pub fn store_ssh_port(app_data: &Path, alias: &str, port: u16) -> Result<(), String> {
+    let path = app_data.join(format!("{KEY_ALIAS}-{alias}.port"));
+    std::fs::write(&path, port.to_string()).map_err(|e| format!("Cannot write port: {e}"))
+}
+
+/// Load the SSH port for a host alias. Returns 22 if not found.
+pub fn load_ssh_port(app_data: &Path, alias: &str) -> u16 {
+    let path = app_data.join(format!("{KEY_ALIAS}-{alias}.port"));
+    std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(22)
+}

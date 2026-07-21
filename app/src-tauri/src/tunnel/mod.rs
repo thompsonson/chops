@@ -39,8 +39,11 @@ fn default_remote_socket_path() -> String {
 }
 
 /// Parse a host string into (hostname, remote_socket_path).
-/// Format: `hostname` or `hostname:/path/to/socket`
+/// Format: `hostname`, `user@hostname`, or `hostname:/path/to/socket`
 fn parse_host(host: &str) -> Result<(&str, String), String> {
+    // Strip optional user@ prefix
+    let host = host.rsplit_once('@').map(|(_, h)| h).unwrap_or(host);
+
     if let Some(idx) = host.find(':') {
         let hostname = &host[..idx];
         let remote = host[idx + 1..].to_string();
@@ -52,6 +55,80 @@ fn parse_host(host: &str) -> Result<(&str, String), String> {
         }
     }
     Ok((host, default_remote_socket_path()))
+}
+
+/// Shell-quote a string for use in a remote command: wraps in single quotes,
+/// escaping any internal single quotes.
+pub(crate) fn sh_quote(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('\'');
+    for ch in s.chars() {
+        if ch == '\'' {
+            out.push_str("'\\''");
+        } else {
+            out.push(ch);
+        }
+    }
+    out.push('\'');
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_host_plain() {
+        let (host, remote) = parse_host("pop-mini").unwrap();
+        assert_eq!(host, "pop-mini");
+        assert_eq!(remote, "/run/user/1000/dev.sock");
+    }
+
+    #[test]
+    fn test_parse_host_with_path() {
+        let (host, remote) = parse_host("pop-mini:/custom/sock").unwrap();
+        assert_eq!(host, "pop-mini");
+        assert_eq!(remote, "/custom/sock");
+    }
+
+    #[test]
+    fn test_parse_host_user_at() {
+        let (host, remote) = parse_host("mt@pop-mini").unwrap();
+        assert_eq!(host, "pop-mini");
+        assert_eq!(remote, "/run/user/1000/dev.sock");
+    }
+
+    #[test]
+    fn test_parse_host_user_at_with_path() {
+        let (host, remote) = parse_host("mt@pop-mini:/custom/sock").unwrap();
+        assert_eq!(host, "pop-mini");
+        assert_eq!(remote, "/custom/sock");
+    }
+
+    #[test]
+    fn test_parse_host_bad_relative_path() {
+        assert!(parse_host("pop-mini:relative/path").is_err());
+    }
+
+    #[test]
+    fn test_sh_quote_simple() {
+        assert_eq!(sh_quote("hello"), "'hello'");
+    }
+
+    #[test]
+    fn test_sh_quote_with_apostrophe() {
+        assert_eq!(sh_quote("it's"), "'it'\\''s'");
+    }
+
+    #[test]
+    fn test_sh_quote_empty() {
+        assert_eq!(sh_quote(""), "''");
+    }
+
+    #[test]
+    fn test_sh_quote_path() {
+        assert_eq!(sh_quote("/run/user/1000/dev.sock"), "'/run/user/1000/dev.sock'");
+    }
 }
 
 // ---------------------------------------------------------------------------
