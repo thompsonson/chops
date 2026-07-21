@@ -127,7 +127,10 @@ mod tests {
 
     #[test]
     fn test_sh_quote_path() {
-        assert_eq!(sh_quote("/run/user/1000/dev.sock"), "'/run/user/1000/dev.sock'");
+        assert_eq!(
+            sh_quote("/run/user/1000/dev.sock"),
+            "'/run/user/1000/dev.sock'"
+        );
     }
 }
 

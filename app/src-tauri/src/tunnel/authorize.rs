@@ -75,7 +75,7 @@ pub async fn authorize_key(
 
     info!("Password auth ok for {username}@{hostname}");
 
-    let channel = handle
+    let mut channel = handle
         .channel_open_session()
         .await
         .map_err(|e| format!("Session open failed: {e}"))?;

@@ -22,17 +22,17 @@ impl SttEngine {
 
     /// Transcribe f32 PCM samples (16kHz mono) using whisper-rs.
     /// Loads the model on first call. Optionally saves audio to cache dir.
-    pub fn transcribe(
-        &self,
-        app: &AppHandle,
-        samples: &[f32],
-    ) -> Result<String> {
+    pub fn transcribe(&self, app: &AppHandle, samples: &[f32]) -> Result<String> {
         let duration_secs = samples.len() as f32 / SAMPLE_RATE as f32;
         if duration_secs < 0.3 {
             return Err(anyhow::anyhow!("Audio too short ({:.1}s)", duration_secs));
         }
 
-        info!("Transcribing {:.1}s of audio ({} samples)", duration_secs, samples.len());
+        info!(
+            "Transcribing {:.1}s of audio ({} samples)",
+            duration_secs,
+            samples.len()
+        );
 
         // Save audio to cache for debugging/replay
         if let Err(e) = save_wav_cache(app, samples) {
@@ -71,7 +71,9 @@ impl SttEngine {
         params.set_suppress_blank(true);
         params.set_suppress_nst(true);
 
-        let mut state = ctx.create_state().context("Failed to create whisper state")?;
+        let mut state = ctx
+            .create_state()
+            .context("Failed to create whisper state")?;
 
         state
             .full(params, samples)
