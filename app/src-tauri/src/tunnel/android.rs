@@ -71,6 +71,7 @@ impl AndroidTunnel {
         let port = secure_key::load_ssh_port(app_data, &alias);
 
         let sock = socket_path.to_path_buf();
+        let sock_clone = sock.clone();
         let host = hostname.to_string();
         let remote = remote_path.to_string();
         let app_data = app_data.to_path_buf();
@@ -87,7 +88,7 @@ impl AndroidTunnel {
 
             rt.block_on(async move {
                 if let Err(e) =
-                    run_tunnel(app_data, &key_bytes, &username, &host, port, &remote, &sock, shutdown_rx).await
+                    run_tunnel(app_data, &key_bytes, &username, &host, port, &remote, &sock_clone, shutdown_rx).await
                 {
                     error!("Android tunnel to {host}:{port} failed: {e}");
                 }
@@ -170,6 +171,8 @@ async fn run_tunnel(
 
     info!("Tunnel key auth ok for {username}@{hostname}");
 
+    let handle = Arc::new(handle);
+
     let listener = tokio::net::UnixListener::bind(socket_path)
         .map_err(|e| format!("Cannot bind {socket_path:?}: {e}"))?;
 
@@ -180,7 +183,7 @@ async fn run_tunnel(
             accept = listener.accept() => {
                 match accept {
                     Ok((stream, _)) => {
-                        let h = handle.clone();
+                        let h = Arc::clone(&handle);
                         let rp = remote_path.to_string();
                         tokio::spawn(async move {
                             if let Err(e) = forward_connection(h, stream, &rp).await {
@@ -208,13 +211,13 @@ async fn run_tunnel(
 // ---------------------------------------------------------------------------
 
 async fn forward_connection(
-    mut handle: client::Handle<TunnelHandler>,
+    handle: Arc<client::Handle<TunnelHandler>>,
     mut local: tokio::net::UnixStream,
     remote_path: &str,
 ) -> Result<(), String> {
     debug!("Forwarding connection to {remote_path}");
 
-    let channel = handle
+    let mut channel = handle
         .channel_open_session()
         .await
         .map_err(|e| format!("Open session: {e}"))?;
