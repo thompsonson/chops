@@ -1,6 +1,6 @@
 // terminal.js — Session list, polling, ttyd terminal
 
-import { IS_TAURI, tauriInvoke, getApiBase, getTtydUrl, showToast } from './app.js';
+import { IS_TAURI, tauriInvoke, getApiBase, getTtydUrl, showToast, settings } from './app.js';
 import { debugAppend } from './debug.js';
 import { dispatch } from './session/SessionAction.js';
 import { renderGroupedSessions, getHosts, addHost, removeHost, isAndroid, provisionAndroidHost } from './session/sessions.js';
@@ -34,10 +34,7 @@ const btnAddHost = document.getElementById('btn-add-host');
 let selectedSession = '';
 let lastData = null;
 let lastFetchTime = null;
-let pollTimer = null;
-let pollInterval = 3000; // 3s default
-const POLL_MIN = 3000;
-const POLL_MAX = 30000;
+let refreshTimer = null;
 let daemonDown = false;
 
 export function getSessionContext() {
@@ -342,7 +339,6 @@ async function loadSessions() {
           lastFetchTime = Date.now();
           updateLastUpdated();
           if (daemonDown) hideDaemonBanner();
-          pollInterval = POLL_MIN;
           return;
         }
       }
@@ -362,7 +358,6 @@ async function loadSessions() {
       if (!resp.ok) {
         const body = await resp.text().catch(() => '');
         debugAppend('sessions', `ERROR: ${resp.status} ${body}`);
-        pollInterval = Math.min(pollInterval * 2, POLL_MAX);
         return;
       }
       data = await resp.json();
@@ -370,7 +365,6 @@ async function loadSessions() {
 
     // Daemon recovered
     if (daemonDown) hideDaemonBanner();
-    pollInterval = POLL_MIN; // reset backoff on success
 
     lastData = data;
     lastFetchTime = Date.now();
@@ -393,7 +387,6 @@ async function loadSessions() {
       detail += ' [network failure — DNS, TLS cert not trusted, CORS, or not connected to Tailscale]';
     }
     debugAppend('sessions', `ERROR: ${detail}`);
-    pollInterval = Math.min(pollInterval * 2, POLL_MAX);
   }
 }
 
@@ -403,12 +396,12 @@ function updateLastUpdated() {
   lastUpdatedEl.textContent = secs < 2 ? 'just now' : `${secs}s ago`;
 }
 
-function schedulePoll() {
-  if (pollTimer) clearTimeout(pollTimer);
-  pollTimer = setTimeout(async () => {
+function scheduleRefresh() {
+  if (refreshTimer) clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(async () => {
     await loadSessions();
-    schedulePoll();
-  }, pollInterval);
+    scheduleRefresh();
+  }, settings.refreshInterval);
 }
 
 // --- Daemon banner ---
@@ -418,8 +411,6 @@ function showDaemonBanner(detail) {
   daemonBannerDetail.textContent = detail || 'check systemctl --user status dev-daemon';
   daemonBanner.classList.add('visible');
   sessionList.classList.add('daemon-down');
-  // Exponential backoff
-  pollInterval = Math.min(pollInterval * 2, POLL_MAX);
 }
 
 function hideDaemonBanner() {
@@ -432,11 +423,10 @@ function hideDaemonBanner() {
 
 function handleVisibility() {
   if (document.visibilityState === 'visible') {
-    pollInterval = POLL_MIN;
     loadSessions();
-    schedulePoll();
+    scheduleRefresh();
   } else {
-    if (pollTimer) clearTimeout(pollTimer);
+    if (refreshTimer) clearTimeout(refreshTimer);
   }
 }
 
@@ -586,11 +576,9 @@ export function initTerminal() {
   btnCloseInspect.addEventListener('click', closeInspect);
   btnRefreshInspect.addEventListener('click', refreshInspect);
   daemonRefreshBtn.addEventListener('click', () => {
-    pollInterval = POLL_MIN;
     loadSessions();
   });
   btnRefresh.addEventListener('click', () => {
-    pollInterval = POLL_MIN;
     loadSessions();
   });
 
@@ -648,5 +636,5 @@ export function initTerminal() {
   setInterval(updateLastUpdated, 1000);
 
   loadSessions();
-  schedulePoll();
+  scheduleRefresh();
 }
