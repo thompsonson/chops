@@ -252,11 +252,13 @@ function initSettings() {
       tcpPort: parseInt(setTcpPort.value) || DEFAULT_SETTINGS.tcpPort,
       apiPort: parseInt(setApiPort.value) || DEFAULT_SETTINGS.apiPort,
       ttydPort: parseInt(setTtydPort.value) || DEFAULT_SETTINGS.ttydPort,
-      refreshInterval: (parseInt(setRefreshInterval.value) || 600) * 1000,
+      refreshInterval: Math.min(3600, Math.max(30, parseInt(setRefreshInterval.value) || 600)) * 1000,
       updateChannel: setUpdateChannel.value || 'stable',
     };
     saveSettings(newSettings);
     close();
+
+    window.dispatchEvent(new CustomEvent('settings-changed'));
 
     if (IS_TAURI && tauriInvoke) {
       tauriInvoke('connect_mqtt', { host: newSettings.host, port: newSettings.tcpPort })

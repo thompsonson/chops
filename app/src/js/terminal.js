@@ -36,6 +36,7 @@ let lastData = null;
 let lastFetchTime = null;
 let refreshTimer = null;
 let daemonDown = false;
+const DAEMON_RETRY_MS = 10000; // 10s retry while daemon is down
 
 export function getSessionContext() {
   return selectedSession;
@@ -398,10 +399,11 @@ function updateLastUpdated() {
 
 function scheduleRefresh() {
   if (refreshTimer) clearTimeout(refreshTimer);
+  const interval = daemonDown ? DAEMON_RETRY_MS : settings.refreshInterval;
   refreshTimer = setTimeout(async () => {
     await loadSessions();
     scheduleRefresh();
-  }, settings.refreshInterval);
+  }, interval);
 }
 
 // --- Daemon banner ---
@@ -631,6 +633,10 @@ export function initTerminal() {
   });
 
   document.addEventListener('visibilitychange', handleVisibility);
+  window.addEventListener('settings-changed', () => {
+    if (refreshTimer) clearTimeout(refreshTimer);
+    scheduleRefresh();
+  });
 
   // Update "last updated" display every second
   setInterval(updateLastUpdated, 1000);
