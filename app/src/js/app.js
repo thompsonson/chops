@@ -34,6 +34,7 @@ const DEFAULT_SETTINGS = {
   apiPort: 8443,
   ttydPort: 7681,
   updateChannel: 'stable',
+  refreshInterval: 600000, // 10 minutes in ms
 };
 
 export let settings = loadSettings();
@@ -222,6 +223,7 @@ function initSettings() {
   const setApiPort = document.getElementById('set-api-port');
   const setTtydPort = document.getElementById('set-ttyd-port');
   const setModelPath = document.getElementById('set-model-path');
+  const setRefreshInterval = document.getElementById('set-refresh-interval');
   const setUpdateChannel = document.getElementById('set-update-channel');
 
   async function open() {
@@ -230,6 +232,7 @@ function initSettings() {
     setTcpPort.value = settings.tcpPort;
     setApiPort.value = settings.apiPort;
     setTtydPort.value = settings.ttydPort;
+    setRefreshInterval.value = Math.round(settings.refreshInterval / 1000);
     setUpdateChannel.value = settings.updateChannel || 'stable';
     updateStatusEl.textContent = '';
     if (IS_TAURI && tauriInvoke) {
@@ -249,10 +252,13 @@ function initSettings() {
       tcpPort: parseInt(setTcpPort.value) || DEFAULT_SETTINGS.tcpPort,
       apiPort: parseInt(setApiPort.value) || DEFAULT_SETTINGS.apiPort,
       ttydPort: parseInt(setTtydPort.value) || DEFAULT_SETTINGS.ttydPort,
+      refreshInterval: Math.min(3600, Math.max(30, parseInt(setRefreshInterval.value) || 600)) * 1000,
       updateChannel: setUpdateChannel.value || 'stable',
     };
     saveSettings(newSettings);
     close();
+
+    window.dispatchEvent(new CustomEvent('settings-changed'));
 
     if (IS_TAURI && tauriInvoke) {
       tauriInvoke('connect_mqtt', { host: newSettings.host, port: newSettings.tcpPort })
