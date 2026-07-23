@@ -71,6 +71,11 @@ export async function renderGroupedSessions(container) {
       const errEl = document.createElement('div');
       errEl.className = 'host-error';
       errEl.textContent = `Connection failed: ${error}`;
+      const retryBtn = document.createElement('button');
+      retryBtn.className = 'tab-action-btn';
+      retryBtn.textContent = 'Retry';
+      retryBtn.addEventListener('click', () => renderGroupedSessions(container));
+      errEl.appendChild(retryBtn);
       group.appendChild(errEl);
     } else if (listing) {
       const list = document.createElement('div');

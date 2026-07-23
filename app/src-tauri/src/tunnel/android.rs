@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::tunnel::secure_key;
 use crate::tunnel::sh_quote;
@@ -56,6 +56,7 @@ pub(crate) struct AndroidTunnel {
     socket_path: PathBuf,
     thread: Option<std::thread::JoinHandle<()>>,
     shutdown: Option<tokio::sync::oneshot::Sender<()>>,
+    error: Arc<Mutex<Option<String>>>,
 }
 
 impl AndroidTunnel {
@@ -78,6 +79,9 @@ impl AndroidTunnel {
 
         let _ = std::fs::remove_file(&sock);
 
+        let error = Arc::new(Mutex::new(None));
+        let error_clone = error.clone();
+
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
         let thread = std::thread::spawn(move || {
@@ -99,15 +103,40 @@ impl AndroidTunnel {
                 )
                 .await
                 {
+                    if let Ok(mut err) = error_clone.lock() {
+                        *err = Some(e.clone());
+                    }
                     error!("Android tunnel to {host}:{port} failed: {e}");
                 }
             });
         });
 
+        // Poll briefly for the socket to appear (like DesktopTunnel)
+        for _ in 0..50 {
+            if sock.exists() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+
+        if !sock.exists() {
+            let err = error.lock().ok()
+                .and_then(|mut e| e.take())
+                .unwrap_or_else(|| {
+                    if thread.is_finished() {
+                        "SSH tunnel failed (check host, credentials, and SSH server)".to_string()
+                    } else {
+                        "SSH tunnel not ready yet (try again)".to_string()
+                    }
+                });
+            return Err(err);
+        }
+
         Ok(Self {
             socket_path: sock,
             thread: Some(thread),
             shutdown: Some(shutdown_tx),
+            error,
         })
     }
 }
