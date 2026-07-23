@@ -917,6 +917,7 @@ sendOverlay.addEventListener('click', (e) => {
   if (e.target === sendOverlay) closeSendPopup();
 });
 sendText.addEventListener('keydown', (e) => {
+  e.stopPropagation();
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
     e.preventDefault();
     sendOk.click();
@@ -926,7 +927,10 @@ sendText.addEventListener('keydown', (e) => {
 sendOk.addEventListener('click', async () => {
   const text = sendText.value.trim();
   const session = sendTarget.textContent;
-  if (!text || !session) return;
+  if (!text || !session) {
+    showToast('No message or session selected', 'warn');
+    return;
+  }
   closeSendPopup();
   try {
     const resp = await fetch(`/api/sessions/${encodeURIComponent(session)}/panes/1.1/keys`, {

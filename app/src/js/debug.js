@@ -4,7 +4,6 @@ import { IS_TAURI, tauriInvoke, getApiBase, getTtydUrl, getHost, settings } from
 
 const debugConfig = document.getElementById('debug-config');
 const debugApiResult = document.getElementById('debug-api-result');
-const debugLog = document.getElementById('debug-log');
 const btnDebugSessions = document.getElementById('btn-debug-sessions');
 const btnDebugMqtt = document.getElementById('btn-debug-mqtt');
 const btnExportLogs = document.getElementById('btn-export-logs');
@@ -21,7 +20,8 @@ export function debugAppend(tag, message) {
   const line = `[${ts}] [${tag}] ${message}`;
   logLines.push(line);
   if (logLines.length > MAX_LOG_LINES) logLines.shift();
-  if (debugLog) debugLog.textContent = logLines.join('\n');
+  const el = document.getElementById('debug-log');
+  if (el) el.textContent = logLines.join('\n');
 }
 
 // --- Config display ---

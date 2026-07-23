@@ -528,6 +528,7 @@ sessionSendOverlay.addEventListener('click', (e) => {
   if (e.target === sessionSendOverlay) closeSessionSendPopup();
 });
 sessionSendText.addEventListener('keydown', (e) => {
+  e.stopPropagation();
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
     e.preventDefault();
     sessionSendOk.click();
@@ -537,7 +538,10 @@ sessionSendText.addEventListener('keydown', (e) => {
 sessionSendOk.addEventListener('click', async () => {
   const text = sessionSendText.value.trim();
   const session = sessionSendTarget.textContent;
-  if (!text || !session) return;
+  if (!text || !session) {
+    showToast('No message or session selected', 'warn');
+    return;
+  }
   closeSessionSendPopup();
 
   if (IS_TAURI) {
