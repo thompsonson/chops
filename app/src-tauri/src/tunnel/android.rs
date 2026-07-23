@@ -264,7 +264,7 @@ async fn run_tunnel(
 
 async fn forward_connection(
     handle: Arc<client::Handle<TunnelHandler>>,
-    local: tokio::net::UnixStream,
+    mut local: tokio::net::UnixStream,
     remote_path: &str,
 ) -> Result<(), String> {
     info!("forward: start connection to {remote_path}");
