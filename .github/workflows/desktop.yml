@@ -16,7 +16,9 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            artifact: chops-macos
+            artifact: chops-macos-arm64
+          - os: macos-13
+            artifact: chops-macos-x86_64
           - os: ubuntu-latest
             artifact: chops-linux
     runs-on: ${{ matrix.os }}
@@ -121,8 +123,16 @@ jobs:
       - name: Collect release files
         run: |
           mkdir -p release-files
-          find artifacts -type f \( -name '*.dmg' -o -name '*.AppImage' -o -name '*.AppImage.sig' -o -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' -o -name '*.deb' \) | \
-            xargs -I{} cp {} release-files/
+          # macOS ARM
+          cp artifacts/chops-macos-arm64/chops.app.tar.gz release-files/chops-aarch64.app.tar.gz
+          cp artifacts/chops-macos-arm64/chops.app.tar.gz.sig release-files/chops-aarch64.app.tar.gz.sig
+          find artifacts/chops-macos-arm64 -name '*.dmg' -exec cp {} release-files/ \;
+          # macOS Intel
+          cp artifacts/chops-macos-x86_64/chops.app.tar.gz release-files/chops-x86_64.app.tar.gz
+          cp artifacts/chops-macos-x86_64/chops.app.tar.gz.sig release-files/chops-x86_64.app.tar.gz.sig
+          find artifacts/chops-macos-x86_64 -name '*.dmg' -exec cp {} release-files/ \;
+          # Linux
+          find artifacts/chops-linux -type f -exec cp {} release-files/ \;
           ls -la release-files/
 
       - name: Generate latest.json for updater
@@ -149,9 +159,7 @@ jobs:
 
           # Read signatures
           LINUX_SIG=""
-          MACOS_SIG=""
           LINUX_URL=""
-          MACOS_URL=""
 
           for f in release-files/*.AppImage.sig; do
             [ -f "$f" ] && LINUX_SIG=$(cat "$f")
@@ -159,19 +167,32 @@ jobs:
             LINUX_URL="$DL_BASE/$LINUX_BUNDLE"
           done
 
-          for f in release-files/*.app.tar.gz.sig; do
-            [ -f "$f" ] && MACOS_SIG=$(cat "$f")
-            MACOS_BUNDLE=$(basename "${f%.sig}")
-            MACOS_URL="$DL_BASE/$MACOS_BUNDLE"
-          done
+          # macOS ARM
+          MACOS_ARM_SIG=""
+          MACOS_ARM_URL=""
+          if [ -f "release-files/chops-aarch64.app.tar.gz.sig" ]; then
+            MACOS_ARM_SIG=$(cat release-files/chops-aarch64.app.tar.gz.sig)
+            MACOS_ARM_URL="$DL_BASE/chops-aarch64.app.tar.gz"
+          fi
+
+          # macOS Intel
+          MACOS_X64_SIG=""
+          MACOS_X64_URL=""
+          if [ -f "release-files/chops-x86_64.app.tar.gz.sig" ]; then
+            MACOS_X64_SIG=$(cat release-files/chops-x86_64.app.tar.gz.sig)
+            MACOS_X64_URL="$DL_BASE/chops-x86_64.app.tar.gz"
+          fi
 
           # Build latest.json
           PLATFORMS="{}"
           if [ -n "$LINUX_SIG" ]; then
             PLATFORMS=$(echo "$PLATFORMS" | jq --arg url "$LINUX_URL" --arg sig "$LINUX_SIG" '. + {"linux-x86_64": {"url": $url, "signature": $sig}}')
           fi
-          if [ -n "$MACOS_SIG" ]; then
-            PLATFORMS=$(echo "$PLATFORMS" | jq --arg url "$MACOS_URL" --arg sig "$MACOS_SIG" '. + {"darwin-aarch64": {"url": $url, "signature": $sig}}')
+          if [ -n "$MACOS_ARM_SIG" ]; then
+            PLATFORMS=$(echo "$PLATFORMS" | jq --arg url "$MACOS_ARM_URL" --arg sig "$MACOS_ARM_SIG" '. + {"darwin-aarch64": {"url": $url, "signature": $sig}}')
+          fi
+          if [ -n "$MACOS_X64_SIG" ]; then
+            PLATFORMS=$(echo "$PLATFORMS" | jq --arg url "$MACOS_X64_URL" --arg sig "$MACOS_X64_SIG" '. + {"darwin-x86_64": {"url": $url, "signature": $sig}}')
           fi
 
           jq -n \
