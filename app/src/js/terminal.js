@@ -76,21 +76,37 @@ function renderSessions(data) {
 
       const nameRow = document.createElement('div');
       nameRow.className = 'session-name-row';
-      nameRow.innerHTML = `<span class="session-name">${esc(s.name)}</span>`;
+
+      let nameRowHtml = `<span class="session-name">${esc(s.name)}</span>`;
+      if (s.agent) {
+        const cls = s.agent_running ? 'badge-agent-running' : 'badge-agent-dead';
+        const dot = s.agent_running ? '\u25cf' : '\u25cb';
+        nameRowHtml += `<span class="session-badge ${cls}">${esc(s.agent)} ${dot}</span>`;
+      }
       if (s.layout === 'claude') {
-        nameRow.innerHTML += '<span class="session-badge badge-layout">claude</span>';
+        nameRowHtml += '<span class="session-badge badge-layout">claude</span>';
       }
       if (s.attached) {
-        nameRow.innerHTML += '<span class="session-badge badge-attached">attached</span>';
+        nameRowHtml += '<span class="session-badge badge-attached">attached</span>';
       }
       if (s.agent && !s.agent_running) {
-        nameRow.innerHTML += '<span class="session-badge badge-danger">agent down</span>';
+        nameRowHtml += '<span class="session-badge badge-danger">agent down</span>';
       }
+      nameRow.innerHTML = nameRowHtml;
       info.appendChild(nameRow);
+
+      if (s.responsibility) {
+        const sub = document.createElement('div');
+        sub.className = 'session-subtitle';
+        sub.textContent = s.responsibility;
+        info.appendChild(sub);
+      }
 
       const meta = document.createElement('div');
       meta.className = 'session-meta';
       meta.textContent = `${s.pane_count} pane${s.pane_count !== 1 ? 's' : ''} \u00b7 ${relativeTime(s.last_activity)}`;
+      const metaTitle = [s.project_path, s.repository].filter(Boolean).join(' \u00b7 ');
+      if (metaTitle) meta.title = metaTitle;
       info.appendChild(meta);
 
       card.appendChild(info);

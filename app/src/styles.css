@@ -289,6 +289,17 @@ header h1 { font-size: 1.25rem; font-weight: 600; }
 .badge-attached { color: var(--ok); }
 .badge-danger { color: var(--error); }
 .badge-remote { color: #f0c040; }
+.badge-agent-running { color: var(--ok); }
+.badge-agent-dead { color: var(--error); }
+
+.session-subtitle {
+  font-size: 0.7rem;
+  color: var(--text);
+  margin-top: 0.1rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .session-meta {
   font-size: 0.7rem;
@@ -453,9 +464,19 @@ button {
   font-family: inherit;
   font-size: 0.9rem;
   font-weight: 500;
+  white-space: nowrap;
 }
 button:hover { opacity: 0.9; }
 button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+#btn-direct {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.75rem;
+  padding: 0.6rem 0.8rem;
+}
+#btn-direct:hover { color: var(--text); border-color: var(--accent); }
 
 /* --- Mic button --- */
 

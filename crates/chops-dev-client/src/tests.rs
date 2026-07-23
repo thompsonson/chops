@@ -66,7 +66,11 @@ async fn test_list_parses_sessions_and_projects() {
             "agent": "claude",
             "active_command": "claude",
             "agent_running": true,
-            "agent_session_id": "dev-abc123"
+            "agent_session_id": "dev-abc123",
+            "responsibility": "maintain CI pipelines",
+            "project_path": "/home/mt/Projects/chops",
+            "repository": "github.com/thompsonson/chops",
+            "host": "pop-mini"
         }],
         "projects": [{
             "name": "manta-deploy",
@@ -91,6 +95,22 @@ async fn test_list_parses_sessions_and_projects() {
     assert_eq!(
         listing.sessions[0].agent_session_id.as_deref(),
         Some("dev-abc123")
+    );
+    assert_eq!(
+        listing.sessions[0].responsibility.as_deref(),
+        Some("maintain CI pipelines")
+    );
+    assert_eq!(
+        listing.sessions[0].project_path.as_deref(),
+        Some("/home/mt/Projects/chops")
+    );
+    assert_eq!(
+        listing.sessions[0].repository.as_deref(),
+        Some("github.com/thompsonson/chops")
+    );
+    assert_eq!(
+        listing.sessions[0].host.as_deref(),
+        Some("pop-mini")
     );
 
     assert_eq!(listing.projects.len(), 1);
@@ -123,6 +143,10 @@ async fn test_list_handles_missing_agent_fields() {
     assert!(listing.sessions[0].active_command.is_none());
     assert!(!listing.sessions[0].agent_running);
     assert!(listing.sessions[0].agent_session_id.is_none());
+    assert!(listing.sessions[0].responsibility.is_none());
+    assert!(listing.sessions[0].project_path.is_none());
+    assert!(listing.sessions[0].repository.is_none());
+    assert!(listing.sessions[0].host.is_none());
 
     handle.await.unwrap();
 }

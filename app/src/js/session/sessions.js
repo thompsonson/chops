@@ -89,13 +89,29 @@ export async function renderGroupedSessions(container) {
 
         const info = document.createElement('div');
         info.className = 'session-info';
-        info.innerHTML = `<div class="session-name-row">
-          <span class="session-name">${esc(s.name)}</span>
-          ${s.layout === 'claude' ? '<span class="session-badge badge-layout">claude</span>' : ''}
-          ${s.attached ? '<span class="session-badge badge-attached">attached</span>' : ''}
-          ${s.agent && !s.agent_running ? '<span class="session-badge badge-danger">agent down</span>' : ''}
-        </div>
-        <div class="session-meta">${s.pane_count} pane${s.pane_count !== 1 ? 's' : ''} · ${relativeTime(s.last_activity)}</div>`;
+
+        let nameRowHtml = `<span class="session-name">${esc(s.name)}</span>`;
+        if (s.agent) {
+          const cls = s.agent_running ? 'badge-agent-running' : 'badge-agent-dead';
+          const dot = s.agent_running ? '\u25cf' : '\u25cb';
+          nameRowHtml += `<span class="session-badge ${cls}">${esc(s.agent)} ${dot}</span>`;
+        }
+        if (s.layout === 'claude') {
+          nameRowHtml += '<span class="session-badge badge-layout">claude</span>';
+        }
+        if (s.attached) {
+          nameRowHtml += '<span class="session-badge badge-attached">attached</span>';
+        }
+        if (s.agent && !s.agent_running) {
+          nameRowHtml += '<span class="session-badge badge-danger">agent down</span>';
+        }
+        let subHtml = '';
+        if (s.responsibility) {
+          subHtml = `<div class="session-subtitle">${esc(s.responsibility)}</div>`;
+        }
+        const metaTitle = [s.project_path, s.repository].filter(Boolean).join(' \u00b7 ');
+        const metaTitleAttr = metaTitle ? ` title="${esc(metaTitle)}"` : '';
+        info.innerHTML = `<div class="session-name-row">${nameRowHtml}</div>${subHtml}<div class="session-meta"${metaTitleAttr}>${s.pane_count} pane${s.pane_count !== 1 ? 's' : ''} \u00b7 ${relativeTime(s.last_activity)}</div>`;
         card.appendChild(info);
 
         const actions = document.createElement('div');

@@ -50,6 +50,14 @@ pub struct SessionInfo {
     pub agent_running: bool,
     #[serde(default)]
     pub agent_session_id: Option<String>,
+    #[serde(default)]
+    pub responsibility: Option<String>,
+    #[serde(default)]
+    pub project_path: Option<String>,
+    #[serde(default)]
+    pub repository: Option<String>,
+    #[serde(default)]
+    pub host: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
