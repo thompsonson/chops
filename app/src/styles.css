@@ -469,15 +469,6 @@ button {
 button:hover { opacity: 0.9; }
 button:disabled { opacity: 0.4; cursor: not-allowed; }
 
-#btn-direct {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  color: var(--muted);
-  font-size: 0.75rem;
-  padding: 0.6rem 0.8rem;
-}
-#btn-direct:hover { color: var(--text); border-color: var(--accent); }
-
 /* --- Mic button --- */
 
 .mic-btn {

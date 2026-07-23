@@ -321,7 +321,6 @@
       <svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
     </button>
     <button id="send" disabled>Send</button>
-    <button id="btn-direct" title="Send directly to agent pane" style="background:var(--surface);border:1px solid var(--border);color:var(--muted);font-size:0.75rem;padding:0.6rem 0.8rem;">Pane</button>
   </div>
 
   <div class="session-bar">
@@ -330,6 +329,7 @@
     </select>
     <button class="session-btn" id="btn-start" title="Start session" disabled>Start</button>
     <button class="session-btn session-btn-stop" id="btn-stop" title="Stop session" disabled>Stop</button>
+    <button class="session-btn" id="btn-send" title="Send message to agent pane" disabled style="background:var(--surface);color:var(--text);">Send</button>
   </div>
 
   <div class="escalation-banner" id="escalation-banner">
@@ -353,6 +353,18 @@
       <div class="empty">No messages yet.</div>
     </div>
   </details>
+
+  <!-- Session send popup -->
+  <div class="modal-overlay" id="session-send-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:100;align-items:center;justify-content:center;padding:1rem;">
+    <div class="modal" style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:1.5rem;width:100%;max-width:400px;">
+      <h2 style="font-size:1rem;margin-bottom:1rem;font-weight:600;">Send to <span id="session-send-target"></span></h2>
+      <textarea id="session-send-text" rows="4" placeholder="Type a message for the agent..." style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:0.9rem;padding:0.5rem;resize:vertical;outline:none;box-sizing:border-box;"></textarea>
+      <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1rem;">
+        <button class="btn-cancel" id="session-send-cancel" style="padding:0.5rem 1rem;font-size:0.8rem;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;">Cancel</button>
+        <button id="session-send-ok" style="padding:0.5rem 1rem;font-size:0.8rem;background:var(--ok);color:var(--bg);border:none;border-radius:6px;cursor:pointer;font-weight:500;">Send</button>
+      </div>
+    </div>
+  </div>
 
   <div class="help">
     <strong>Commands:</strong>
@@ -529,33 +541,6 @@ function sendCommand() {
   appendLog(createLogEntry('sent', 'sent', text));
   cmdEl.value = '';
   cmdEl.focus();
-}
-
-// --- Direct pane send ---
-
-async function sendDirect() {
-  let text = cmdEl.value.trim();
-  if (!text) return;
-  if (!currentSession || currentSession.startsWith('project:')) {
-    showToast('Select an active session first', 'warn');
-    return;
-  }
-  try {
-    const resp = await fetch(`/api/sessions/${encodeURIComponent(currentSession)}/panes/1.1/keys`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ keys: text + '\n' }),
-    });
-    if (!resp.ok) {
-      const err = await resp.text();
-      throw new Error(err);
-    }
-    appendLog(createLogEntry('sent', 'direct', `to ${currentSession}:1.1: ${text}`));
-    cmdEl.value = '';
-    cmdEl.focus();
-  } catch (e) {
-    showToast(`Pane send failed: ${e.message}`, 'error');
-  }
 }
 
 function createLogEntry(type, topic, content) {
@@ -765,7 +750,6 @@ sendBtn.addEventListener('click', sendCommand);
 cmdEl.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') sendCommand();
 });
-document.getElementById('btn-direct').addEventListener('click', sendDirect);
 micBtn.addEventListener('click', toggleRecording);
 
 // --- Workflow panel ---
@@ -904,7 +888,64 @@ function updateButtons() {
   const isSession = val && !isProject;
   btnStart.disabled = !isProject;
   btnStop.disabled = !isSession;
+  document.getElementById('btn-send').disabled = !isSession;
 }
+
+// --- Session send popup ---
+
+const sendOverlay = document.getElementById('session-send-overlay');
+const sendTarget = document.getElementById('session-send-target');
+const sendText = document.getElementById('session-send-text');
+const sendOk = document.getElementById('session-send-ok');
+const sendCancel = document.getElementById('session-send-cancel');
+
+function openSendPopup() {
+  const session = sessionSelect.value;
+  if (!session || session.startsWith('project:')) return;
+  sendTarget.textContent = session;
+  sendText.value = '';
+  sendOverlay.style.display = 'flex';
+  sendText.focus();
+}
+
+function closeSendPopup() {
+  sendOverlay.style.display = 'none';
+}
+
+sendCancel.addEventListener('click', closeSendPopup);
+sendOverlay.addEventListener('click', (e) => {
+  if (e.target === sendOverlay) closeSendPopup();
+});
+sendText.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    sendOk.click();
+  }
+});
+
+sendOk.addEventListener('click', async () => {
+  const text = sendText.value.trim();
+  const session = sendTarget.textContent;
+  if (!text || !session) return;
+  closeSendPopup();
+  try {
+    const resp = await fetch(`/api/sessions/${encodeURIComponent(session)}/panes/1.1/keys`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keys: text + '\n' }),
+    });
+    if (!resp.ok) {
+      const err = await resp.text().catch(() => '');
+      throw new Error(`${resp.status}: ${err}`);
+    }
+    appendLog(createLogEntry('sent', 'direct', `to ${session}: sent`));
+    showToast(`Sent to ${session}`, 'ok');
+  } catch (e) {
+    showToast(`Send failed: ${e.message}`, 'error');
+  }
+});
+
+document.getElementById('btn-send').addEventListener('click', openSendPopup);
 
 sessionSelect.addEventListener('change', async () => {
   updateButtons();

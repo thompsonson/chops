@@ -327,39 +327,4 @@ export function initCommands() {
   cmdEl.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') sendCommand();
   });
-  document.getElementById('btn-direct')?.addEventListener('click', sendDirect);
-}
-
-// --- Direct pane send ---
-
-export async function sendDirect() {
-  const text = cmdEl.value.trim();
-  if (!text) return;
-
-  const session = getSessionContext();
-  if (!session || session.startsWith('project:')) {
-    showToast('Select an active session first', 'warn');
-    return;
-  }
-
-  const conversationId = `direct-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-  addMessage('sent', escapeHtml(text), '\u2192 pane', conversationId);
-  appendLog(createLogEntry('sent', 'direct', `to ${session}:1.1: ${text}`));
-
-  try {
-    await dispatch({
-      type: 'send_keys',
-      session,
-      pane: '1.1',
-      keys: text + '\n',
-    });
-    addMessage('response', 'Sent to agent pane', 'ok', conversationId);
-  } catch (e) {
-    const err = String(e);
-    addMessage('error', escapeHtml(err), 'error', conversationId);
-    showToast(`Pane send failed: ${err}`, 'error');
-  }
-
-  cmdEl.value = '';
-  cmdEl.focus();
 }

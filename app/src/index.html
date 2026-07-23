@@ -150,7 +150,6 @@
         </button>
         <input type="text" id="cmd" placeholder="run cargo test">
         <button id="send" disabled>Send</button>
-        <button id="btn-direct" title="Send directly to agent pane">Pane</button>
       </div>
     </div>
   </div>
@@ -243,6 +242,18 @@
       <div class="modal-buttons">
         <button class="btn-cancel" id="provision-cancel">Cancel</button>
         <button id="provision-done" style="background:var(--ok);">Authorize &amp; Add Host</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Session send popup -->
+  <div class="modal-overlay" id="session-send-overlay">
+    <div class="modal">
+      <h2>Send to <span id="session-send-target"></span></h2>
+      <textarea id="session-send-text" rows="4" placeholder="Type a message for the agent..." style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:0.9rem;padding:0.5rem;resize:vertical;outline:none;box-sizing:border-box;"></textarea>
+      <div class="modal-buttons">
+        <button class="btn-cancel" id="session-send-cancel">Cancel</button>
+        <button id="session-send-ok" style="background:var(--ok);">Send</button>
       </div>
     </div>
   </div>

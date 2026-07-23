@@ -144,6 +144,15 @@ export async function renderGroupedSessions(container) {
         });
         actions.appendChild(killBtn);
 
+        const sendMsgBtn = document.createElement('button');
+        sendMsgBtn.className = 'session-action-btn';
+        sendMsgBtn.textContent = 'Send';
+        sendMsgBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          openSessionSendPopup(host, s.name);
+        });
+        actions.appendChild(sendMsgBtn);
+
         card.appendChild(actions);
         list.appendChild(card);
       }

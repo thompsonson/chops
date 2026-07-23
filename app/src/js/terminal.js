@@ -135,6 +135,16 @@ function renderSessions(data) {
       killBtn.addEventListener('click', (e) => { e.stopPropagation(); stopSession(s.name); });
       actions.appendChild(killBtn);
 
+      const sendMsgBtn = document.createElement('button');
+      sendMsgBtn.className = 'session-action-btn';
+      sendMsgBtn.textContent = 'Send';
+      sendMsgBtn.title = 'Send message to agent pane';
+      sendMsgBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openSessionSendPopup(s.name);
+      });
+      actions.appendChild(sendMsgBtn);
+
       card.appendChild(actions);
       sessionList.appendChild(card);
     });
@@ -490,6 +500,77 @@ async function sendKeysToTerminal(text) {
     showToast(`Send keys failed: ${e.message}`, 'error');
   }
 }
+
+// --- Session send popup ---
+
+const sessionSendOverlay = document.getElementById('session-send-overlay');
+const sessionSendTarget = document.getElementById('session-send-target');
+const sessionSendText = document.getElementById('session-send-text');
+const sessionSendOk = document.getElementById('session-send-ok');
+const sessionSendCancel = document.getElementById('session-send-cancel');
+
+let pendingSendHost = null;
+
+function openSessionSendPopup(sessionName, host) {
+  sessionSendTarget.textContent = sessionName;
+  pendingSendHost = host || null;
+  sessionSendText.value = '';
+  sessionSendOverlay.classList.add('visible');
+  sessionSendText.focus();
+}
+
+function closeSessionSendPopup() {
+  sessionSendOverlay.classList.remove('visible');
+}
+
+sessionSendCancel.addEventListener('click', closeSessionSendPopup);
+sessionSendOverlay.addEventListener('click', (e) => {
+  if (e.target === sessionSendOverlay) closeSessionSendPopup();
+});
+sessionSendText.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    sessionSendOk.click();
+  }
+});
+
+sessionSendOk.addEventListener('click', async () => {
+  const text = sessionSendText.value.trim();
+  const session = sessionSendTarget.textContent;
+  if (!text || !session) return;
+  closeSessionSendPopup();
+
+  if (IS_TAURI) {
+    try {
+      await dispatch({ type: 'send_keys', session, pane: '1.1', keys: text + '\n', host: pendingSendHost || undefined });
+      showToast(`Sent to ${session}`, 'ok');
+      debugAppend('keys', `sent to ${session}:1.1: ${text}`);
+    } catch (e) {
+      showToast(`Send failed: ${e}`, 'error');
+      debugAppend('keys', `ERROR sending to ${session}: ${e}`);
+    }
+    return;
+  }
+
+  try {
+    const host = window.location.hostname || 'localhost';
+    const apiBase = `https://${host}:8443`;
+    const url = `${apiBase}/api/sessions/${encodeURIComponent(session)}/panes/1.1/keys`;
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keys: text + '\n' }),
+    });
+    if (!resp.ok) {
+      const err = await resp.text().catch(() => '');
+      throw new Error(`${resp.status}: ${err}`);
+    }
+    showToast(`Sent to ${session}`, 'ok');
+  } catch (e) {
+    showToast(`Send failed: ${e.message}`, 'error');
+  }
+  pendingSendHost = null;
+});
 
 // --- Terminal mic (record → transcribe → review → paste into pane) ---
 
