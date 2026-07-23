@@ -90,7 +90,10 @@ async fn test_list_parses_sessions_and_projects() {
     assert!(listing.sessions[0].attached);
     assert_eq!(listing.sessions[0].layout, "claude");
     assert_eq!(listing.sessions[0].agent.as_deref(), Some("claude"));
-    assert_eq!(listing.sessions[0].active_command.as_deref(), Some("claude"));
+    assert_eq!(
+        listing.sessions[0].active_command.as_deref(),
+        Some("claude")
+    );
     assert!(listing.sessions[0].agent_running);
     assert_eq!(
         listing.sessions[0].agent_session_id.as_deref(),
@@ -108,10 +111,7 @@ async fn test_list_parses_sessions_and_projects() {
         listing.sessions[0].repository.as_deref(),
         Some("github.com/thompsonson/chops")
     );
-    assert_eq!(
-        listing.sessions[0].host.as_deref(),
-        Some("pop-mini")
-    );
+    assert_eq!(listing.sessions[0].host.as_deref(), Some("pop-mini"));
 
     assert_eq!(listing.projects.len(), 1);
     assert_eq!(listing.projects[0].name, "manta-deploy");

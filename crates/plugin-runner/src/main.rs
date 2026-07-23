@@ -155,7 +155,13 @@ async fn handle_tmux(payload: &str) -> Result<String> {
     if cmd.pane == "claude" {
         let current = run_command(
             "tmux",
-            &["display-message", "-p", "-t", &target, "#{pane_current_command}"],
+            &[
+                "display-message",
+                "-p",
+                "-t",
+                &target,
+                "#{pane_current_command}",
+            ],
         )
         .await?;
         let current = current.trim();
