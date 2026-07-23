@@ -206,6 +206,9 @@
     line-height: 1.6;
   }
 
+  .debug-config { font-size: 0.7rem; color: var(--muted); padding: 0.35rem 0; line-height: 1.6; }
+  .debug-actions { display: flex; gap: 0.35rem; margin: 0.35rem 0; }
+
   /* Toast notifications */
   .toast-container {
     position: fixed;
@@ -339,7 +342,12 @@
   </div>
 
   <details class="debug-panel">
-    <summary>Messages</summary>
+    <summary>Debug</summary>
+    <div class="debug-config" id="debug-config"></div>
+    <div class="debug-actions">
+      <button class="session-btn" id="debug-test-mqtt" style="font-size:0.7rem;">Test MQTT WS</button>
+      <button class="session-btn" id="debug-test-api" style="font-size:0.7rem;">Test API</button>
+    </div>
     <div class="log" id="log">
       <div class="empty">No messages yet.</div>
     </div>
@@ -413,9 +421,13 @@ function connect() {
     sendBtn.disabled = true;
   });
 
-  client.on('error', () => {
+  client.on('error', (err) => {
     statusEl.classList.remove('connected');
     statusText.textContent = 'error';
+    appendLog(createLogEntry('error', 'mqtt', `Error: ${err.message || err}`));
+    if (err.message && err.message.includes('reset by peer')) {
+      showToast(`MQTT connection reset — check mosquitto on ${MQTT_WS_PORT}`, 'error');
+    }
   });
 
   client.on('message', (topic, payload) => {
@@ -558,6 +570,64 @@ function showToast(message, level) {
   toastsEl.appendChild(el);
   el.addEventListener('animationend', () => el.remove());
 }
+
+// --- Debug panel ---
+
+function renderDebugConfig() {
+  const el = document.getElementById('debug-config');
+  const host = window.location.hostname || 'localhost';
+  const proto = window.location.protocol;
+  el.innerHTML = `
+host: ${host}
+protocol: ${proto}
+mqtt ws: ${MQTT_WS_PROTO}://${host}:${MQTT_WS_PORT}/mqtt
+api: ${proto}//${host}/api/sessions
+ttyd: ${proto === 'https:' ? 'https' : 'http'}://${host}:${TTYD_PORT}
+  `.trim().replace(/\n/g, '<br>');
+}
+
+document.getElementById('debug-test-mqtt').addEventListener('click', () => {
+  const host = window.location.hostname || 'localhost';
+  const url = `${MQTT_WS_PROTO}://${host}:${MQTT_WS_PORT}`;
+  appendLog(createLogEntry('ok', 'debug', `Testing MQTT WS: ${url} ...`));
+  const ws = new WebSocket(url);
+  ws.onopen = () => {
+    appendLog(createLogEntry('ok', 'debug', 'MQTT WebSocket opened OK'));
+    ws.close();
+  };
+  ws.onerror = () => {
+    appendLog(createLogEntry('error', 'debug', 'MQTT WS error — check mosquitto on ' + MQTT_WS_PORT));
+    showToast('MQTT WebSocket test failed', 'error');
+  };
+  ws.onclose = (e) => {
+    if (e.code !== 1000) {
+      appendLog(createLogEntry('error', 'debug', `MQTT WS closed: code=${e.code} reason=${e.reason}`));
+    }
+  };
+  setTimeout(() => {
+    if (ws.readyState !== ws.OPEN && ws.readyState !== ws.CLOSED) {
+      ws.close();
+      appendLog(createLogEntry('error', 'debug', 'MQTT WS timeout (5s)'));
+    }
+  }, 5000);
+});
+
+document.getElementById('debug-test-api').addEventListener('click', async () => {
+  appendLog(createLogEntry('ok', 'debug', 'Testing /api/sessions ...'));
+  try {
+    const resp = await fetch('/api/sessions');
+    const data = await resp.json();
+    appendLog(createLogEntry('ok', 'debug', `API OK (${resp.status}): ${JSON.stringify(data).slice(0, 200)}`));
+  } catch (e) {
+    const detail = e.message?.includes('Failed to fetch')
+      ? ' — CORS, TLS cert not trusted, or not connected to Tailscale'
+      : e.message?.includes('NetworkError')
+      ? ' — network error, check VPN/Tailscale'
+      : '';
+    appendLog(createLogEntry('error', 'debug', `API failed: ${e.message}${detail}`));
+    showToast('API test failed' + detail, 'error');
+  }
+});
 
 // --- Voice input (Web Speech API) ---
 
@@ -786,6 +856,7 @@ async function loadSessions() {
     updateButtons();
   } catch (e) {
     sessionSelect.innerHTML = '<option value="">Failed to load sessions</option>';
+    appendLog(createLogEntry('error', 'api', `Sessions fetch error: ${e.message}`));
   }
 }
 
@@ -875,6 +946,7 @@ setInterval(loadSessions, 30000);
 initSpeech();
 connect();
 loadSessions();
+renderDebugConfig();
 
 // PWA service worker
 if ('serviceWorker' in navigator) {
