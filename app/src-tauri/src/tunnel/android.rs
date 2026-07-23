@@ -228,11 +228,13 @@ async fn run_tunnel(
             accept = listener.accept() => {
                 match accept {
                     Ok((stream, _)) => {
+                        info!("tunnel: accepted connection, spawning forward");
                         let h = Arc::clone(&handle);
                         let rp = remote_path.to_string();
                         tokio::spawn(async move {
-                            if let Err(e) = forward_connection(h, stream, &rp).await {
-                                debug!("Tunnel forward error: {e}");
+                            match forward_connection(h, stream, &rp).await {
+                                Ok(()) => info!("tunnel: forward completed ok"),
+                                Err(e) => error!("tunnel: forward failed: {e}"),
                             }
                         });
                     }
@@ -242,7 +244,10 @@ async fn run_tunnel(
                     }
                 }
             }
-            _ = &mut shutdown => break,
+            _ = &mut shutdown => {
+                info!("tunnel: received shutdown signal");
+                break;
+            }
         }
     }
 
@@ -259,33 +264,36 @@ async fn run_tunnel(
 
 async fn forward_connection(
     handle: Arc<client::Handle<TunnelHandler>>,
-    mut local: tokio::net::UnixStream,
+    local: tokio::net::UnixStream,
     remote_path: &str,
 ) -> Result<(), String> {
-    debug!("Forwarding connection to {remote_path}");
+    info!("forward: start connection to {remote_path}");
 
     let mut channel = handle
         .channel_open_session()
         .await
         .map_err(|e| format!("Open session: {e}"))?;
+    info!("forward: SSH channel opened");
 
     let cmd = format!("socat STDIO UNIX-CONNECT:{}", sh_quote(remote_path));
     channel
         .exec(true, cmd.as_bytes())
         .await
         .map_err(|e| format!("Exec failed: {e}"))?;
+    info!("forward: socat exec'd");
 
     let (mut local_reader, mut local_writer) = local.split();
     let mut buf = vec![0u8; 16384];
 
-    loop {
+    let reason: String = loop {
         tokio::select! {
             result = local_reader.read(&mut buf) => {
                 match result {
-                    Ok(0) | Err(_) => break,
+                    Ok(0) => break "local_eof".into(),
+                    Err(e) => break format!("local_read_err: {e}"),
                     Ok(n) => {
                         if channel.data(&buf[..n]).await.is_err() {
-                            break;
+                            break "channel_write_err".into();
                         }
                     }
                 }
@@ -294,17 +302,33 @@ async fn forward_connection(
                 match event {
                     Some(ChannelMsg::Data { ref data }) => {
                         if local_writer.write_all(data).await.is_err() {
-                            break;
+                            break "local_write_err".into();
                         }
                     }
-                    Some(ChannelMsg::Eof) | None => break,
+                    Some(ChannelMsg::Eof) => break "remote_eof".into(),
+                    None => break "channel_closed".into(),
                     _ => {}
                 }
             }
         }
+    };
+
+    info!("forward: done — reason={reason}");
+
+    info!("forward: shutting down local writer");
+    let _ = local_writer.shutdown().await;
+
+    // Drain any bytes the client may have sent after we stopped reading
+    let mut final_buf = [0u8; 1024];
+    if let Ok(n) = local_reader.read(&mut final_buf).await {
+        if n > 0 {
+            info!("forward: drained {n} bytes after shutdown");
+        }
     }
 
+    info!("forward: closing SSH channel");
     let _ = channel.close().await;
+    info!("forward: complete");
     Ok(())
 }
 
