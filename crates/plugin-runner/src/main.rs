@@ -203,6 +203,13 @@ async fn handle_termux(command: &str) -> Result<String> {
 /// Check whether a tmux pane is running an expected agent.
 /// For "claude" panes, accept known agent process names; reject bare shells.
 /// For other panes (shell, terminal), skip the check.
+///
+/// NOTE: The agent allow-list is hardcoded to "claude" | "opencode".
+/// A future improvement would wire SessionInfo.agent from the dev daemon
+/// so the check uses the session's actual configured agent. The current
+/// approach correctly rejects bare shells (the reported bug), and unknown
+/// agent names are safely accepted (false positive vs false negative trade-off).
+/// See https://github.com/thompsonson/chops/issues/64
 fn check_agent_running(pane: &str, current_command: &str) -> Result<()> {
     if pane != "claude" {
         return Ok(());
