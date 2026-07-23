@@ -88,6 +88,7 @@ export async function renderGroupedSessions(container) {
           <span class="session-name">${esc(s.name)}</span>
           ${s.layout === 'claude' ? '<span class="session-badge badge-layout">claude</span>' : ''}
           ${s.attached ? '<span class="session-badge badge-attached">attached</span>' : ''}
+          ${s.agent && !s.agent_running ? '<span class="session-badge badge-danger">agent down</span>' : ''}
         </div>
         <div class="session-meta">${s.pane_count} pane${s.pane_count !== 1 ? 's' : ''} · ${relativeTime(s.last_activity)}</div>`;
         card.appendChild(info);

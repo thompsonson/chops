@@ -8,7 +8,7 @@ use serde_json::json;
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::process::Command;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 const VSCODE_TOPIC: &str = "agent/commands/vscode";
 const TERMUX_TOPIC: &str = "agent/commands/termux";
@@ -151,6 +151,21 @@ async fn handle_tmux(payload: &str) -> Result<String> {
 
     let target = format!("{}:1.{}", session, pane_index);
 
+    // Verify the target pane is running an agent (for claude panes).
+    if cmd.pane == "claude" {
+        let current = run_command(
+            "tmux",
+            &["display-message", "-p", "-t", &target, "#{pane_current_command}"],
+        )
+        .await?;
+        let current = current.trim();
+        debug!("Pane {target} current command: {current}");
+        if let Err(e) = check_agent_running(&cmd.pane, current) {
+            warn!("{e}");
+            return Err(e);
+        }
+    }
+
     let output = run_command("tmux", &["send-keys", "-t", &target, &cmd.command, "Enter"]).await?;
 
     Ok(format!("Sent to {}: {}", target, output))
@@ -185,6 +200,21 @@ async fn handle_termux(command: &str) -> Result<String> {
     Ok(output)
 }
 
+/// Check whether a tmux pane is running an expected agent.
+/// For "claude" panes, accept known agent process names; reject bare shells.
+/// For other panes (shell, terminal), skip the check.
+fn check_agent_running(pane: &str, current_command: &str) -> Result<()> {
+    if pane != "claude" {
+        return Ok(());
+    }
+    match current_command {
+        "claude" | "opencode" => Ok(()),
+        other => Err(anyhow::anyhow!(
+            "target pane is not running an agent (found: '{other}')"
+        )),
+    }
+}
+
 const COMMAND_TIMEOUT_SECS: u64 = 10;
 
 /// Run a process, capture stdout/stderr, enforce a timeout.
@@ -211,5 +241,33 @@ async fn run_command(program: &str, args: &[&str]) -> Result<String> {
         }
         Ok(Err(e)) => Err(anyhow::anyhow!("Process error: {e}")),
         Err(_) => Err(anyhow::anyhow!("Process timed out after {timeout:?}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_agent_check_claude_running() {
+        assert!(check_agent_running("claude", "claude").is_ok());
+    }
+
+    #[test]
+    fn test_agent_check_opencode_running() {
+        assert!(check_agent_running("claude", "opencode").is_ok());
+    }
+
+    #[test]
+    fn test_agent_check_claude_pane_shell_rejected() {
+        let err = check_agent_running("claude", "bash").unwrap_err();
+        assert!(err.to_string().contains("not running an agent"));
+    }
+
+    #[test]
+    fn test_agent_check_shell_pane_skipped() {
+        assert!(check_agent_running("shell", "").is_ok());
+        assert!(check_agent_running("shell", "bash").is_ok());
+        assert!(check_agent_running("shell", "vim").is_ok());
     }
 }

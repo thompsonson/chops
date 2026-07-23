@@ -83,6 +83,9 @@ function renderSessions(data) {
       if (s.attached) {
         nameRow.innerHTML += '<span class="session-badge badge-attached">attached</span>';
       }
+      if (s.agent && !s.agent_running) {
+        nameRow.innerHTML += '<span class="session-badge badge-danger">agent down</span>';
+      }
       info.appendChild(nameRow);
 
       const meta = document.createElement('div');
