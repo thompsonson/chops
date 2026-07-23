@@ -149,7 +149,7 @@ export async function renderGroupedSessions(container) {
         sendMsgBtn.textContent = 'Send';
         sendMsgBtn.addEventListener('click', (e) => {
           e.stopPropagation();
-          openSessionSendPopup(host, s.name);
+          window.dispatchEvent(new CustomEvent('send-to-session', { detail: { host, name: s.name } }));
         });
         actions.appendChild(sendMsgBtn);
 

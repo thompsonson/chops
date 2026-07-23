@@ -719,6 +719,10 @@ export function initTerminal() {
     selectSession(name);
     openTerminal(name);
   });
+  window.addEventListener('send-to-session', (e) => {
+    const { host, name } = e.detail;
+    openSessionSendPopup(name, host);
+  });
 
   // Terminal mic
   terminalMic.addEventListener('mousedown', (e) => { e.preventDefault(); tStartRecording(); });
