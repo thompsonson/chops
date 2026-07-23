@@ -5,7 +5,7 @@ import { initCommands, clearConversation, copyAllMessages } from './commands.js'
 import { initTerminal } from './terminal.js';
 import { initVoice } from './voice.js';
 import { clearLog, copyAllLog } from './messages.js';
-import { initDebug } from './debug.js';
+import { initDebug, debugAppend } from './debug.js';
 
 // --- Tauri interop ---
 
@@ -381,6 +381,13 @@ initCommands();
 initTerminal();
 initVoice();
 initDebug();
+
+window.addEventListener('error', (e) => {
+  debugAppend('error', `Uncaught: ${e.message} (${e.filename}:${e.lineno})`);
+});
+window.addEventListener('unhandledrejection', (e) => {
+  debugAppend('error', `Unhandled rejection: ${e.reason}`);
+});
 
 document.getElementById('btn-ping')?.addEventListener('click', pingMqtt);
 
