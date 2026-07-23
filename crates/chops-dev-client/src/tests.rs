@@ -62,7 +62,11 @@ async fn test_list_parses_sessions_and_projects() {
             "pane_count": 2,
             "attached": true,
             "last_activity": 1775983903,
-            "layout": "claude"
+            "layout": "claude",
+            "agent": "claude",
+            "active_command": "claude",
+            "agent_running": true,
+            "agent_session_id": "dev-abc123"
         }],
         "projects": [{
             "name": "manta-deploy",
@@ -81,10 +85,44 @@ async fn test_list_parses_sessions_and_projects() {
     assert_eq!(listing.sessions[0].pane_count, 2);
     assert!(listing.sessions[0].attached);
     assert_eq!(listing.sessions[0].layout, "claude");
+    assert_eq!(listing.sessions[0].agent.as_deref(), Some("claude"));
+    assert_eq!(listing.sessions[0].active_command.as_deref(), Some("claude"));
+    assert!(listing.sessions[0].agent_running);
+    assert_eq!(
+        listing.sessions[0].agent_session_id.as_deref(),
+        Some("dev-abc123")
+    );
 
     assert_eq!(listing.projects.len(), 1);
     assert_eq!(listing.projects[0].name, "manta-deploy");
     assert!(listing.projects[0].host.is_none());
+
+    handle.await.unwrap();
+}
+
+#[tokio::test]
+async fn test_list_handles_missing_agent_fields() {
+    let body = serde_json::json!({
+        "sessions": [{
+            "name": "chops",
+            "pane_count": 2,
+            "attached": true,
+            "last_activity": 1775983903,
+            "layout": "claude"
+        }],
+        "projects": []
+    });
+
+    let (sock, handle) = fake_daemon(&body.to_string(), 200).await;
+    let client = DevClient::new(sock);
+
+    let listing = client.list().await.unwrap();
+    assert_eq!(listing.sessions.len(), 1);
+    assert_eq!(listing.sessions[0].name, "chops");
+    assert!(listing.sessions[0].agent.is_none());
+    assert!(listing.sessions[0].active_command.is_none());
+    assert!(!listing.sessions[0].agent_running);
+    assert!(listing.sessions[0].agent_session_id.is_none());
 
     handle.await.unwrap();
 }

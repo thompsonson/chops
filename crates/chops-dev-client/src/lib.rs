@@ -42,6 +42,14 @@ pub struct SessionInfo {
     pub attached: bool,
     pub last_activity: u64,
     pub layout: String,
+    #[serde(default)]
+    pub agent: Option<String>,
+    #[serde(default)]
+    pub active_command: Option<String>,
+    #[serde(default)]
+    pub agent_running: bool,
+    #[serde(default)]
+    pub agent_session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
