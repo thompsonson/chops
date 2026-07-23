@@ -460,14 +460,14 @@ async fn ssh_authorize_key(
 async fn get_logs(app: tauri::AppHandle) -> Result<String, String> {
     let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
     let path = app_data.join("chops.log");
-    std::fs::read_to_string(&path).map_err(|e| e.to_string())
+    log::read_log(&path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 async fn clear_logs(app: tauri::AppHandle) -> Result<(), String> {
     let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
     let path = app_data.join("chops.log");
-    std::fs::write(&path, b"[cleared]\n").map_err(|e| e.to_string())
+    log::clear_log(&path).map_err(|e| e.to_string())
 }
 
 pub fn run() {

@@ -8,7 +8,7 @@ use russh::client;
 use russh::keys::key;
 use russh::{ChannelMsg, Disconnect};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 // ---------------------------------------------------------------------------
 // SSH client handler
@@ -318,12 +318,21 @@ async fn forward_connection(
     info!("forward: shutting down local writer");
     let _ = local_writer.shutdown().await;
 
-    // Drain any bytes the client may have sent after we stopped reading
+    // Drain any bytes the client may have sent after we stopped reading.
+    // Bounded: the client isn't guaranteed to close its write side just
+    // because we closed ours, so an unbounded read here can hang the task
+    // (and leak its fd) indefinitely.
     let mut final_buf = [0u8; 1024];
-    if let Ok(n) = local_reader.read(&mut final_buf).await {
-        if n > 0 {
-            info!("forward: drained {n} bytes after shutdown");
-        }
+    match tokio::time::timeout(
+        std::time::Duration::from_millis(200),
+        local_reader.read(&mut final_buf),
+    )
+    .await
+    {
+        Ok(Ok(n)) if n > 0 => info!("forward: drained {n} bytes after shutdown"),
+        Ok(Ok(_)) => {}
+        Ok(Err(e)) => debug!("forward: drain read error (ignored): {e}"),
+        Err(_) => warn!("forward: drain read timed out after 200ms, client kept connection open"),
     }
 
     info!("forward: closing SSH channel");

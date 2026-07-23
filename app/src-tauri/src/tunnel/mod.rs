@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::info;
+use tracing::{debug, info, warn};
 
 #[cfg(target_os = "android")]
 mod android;
@@ -183,23 +183,35 @@ impl TunnelManager {
         self.app_data = path;
     }
 
+    #[cfg(target_os = "android")]
+    fn socket_path_for(&self, hostname: &str) -> PathBuf {
+        if self.app_data.as_os_str().is_empty() {
+            default_socket_path(hostname)
+        } else {
+            default_socket_path_in(hostname, &self.app_data)
+        }
+    }
+
+    #[cfg(not(target_os = "android"))]
+    fn socket_path_for(&self, hostname: &str) -> PathBuf {
+        default_socket_path(hostname)
+    }
+
     /// Ensure a tunnel exists for the given host. Returns the local socket path.
     pub fn ensure_tunnel(&mut self, host: &str) -> Result<PathBuf, String> {
         let (hostname, remote_path) = parse_host(host)?;
 
         if let Some(tunnel) = self.tunnels.get_mut(host) {
             if tunnel.is_alive() {
+                debug!("Reusing live tunnel for {host}");
                 return Ok(tunnel.socket_path().to_path_buf());
             }
             // Stale — tear down and recreate
+            warn!("Tunnel for {host} is dead, tearing down and recreating");
             self.stop(host);
         }
 
-        let socket_path = if cfg!(target_os = "android") && !self.app_data.as_os_str().is_empty() {
-            default_socket_path_in(hostname, &self.app_data)
-        } else {
-            default_socket_path(hostname)
-        };
+        let socket_path = self.socket_path_for(hostname);
 
         info!("Creating tunnel for {host} at {:?}", socket_path);
 
@@ -227,11 +239,16 @@ impl TunnelManager {
 
     pub fn stop(&mut self, host: &str) {
         if let Some(tunnel) = self.tunnels.remove(host) {
+            info!("Stopping tunnel for {host}");
             tunnel.kill();
         }
     }
 
     pub fn stop_all(&mut self) {
+        let count = self.tunnels.len();
+        if count > 0 {
+            info!("Stopping all {count} tunnel(s)");
+        }
         for (_, tunnel) in self.tunnels.drain() {
             tunnel.kill();
         }
@@ -241,6 +258,9 @@ impl TunnelManager {
         let mut results = Vec::new();
         self.tunnels.retain(|host, tunnel| {
             let alive = tunnel.is_alive();
+            if !alive {
+                warn!("Tunnel for {host} found dead during status check, dropping");
+            }
             results.push(TunnelStatus {
                 host: host.clone(),
                 alive,

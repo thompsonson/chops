@@ -5,6 +5,7 @@ use aes_gcm::{
 use rand::RngCore;
 use ssh_key::private::{Ed25519Keypair, PrivateKey};
 use std::path::Path;
+use tracing::{debug, warn};
 
 const KEY_ALIAS: &str = "chops-ssh-key";
 const NONCE_LEN: usize = 12;
@@ -24,6 +25,7 @@ pub fn generate_ssh_key() -> Result<(Vec<u8>, String), String> {
         .public_key()
         .to_openssh()
         .map_err(|e| format!("Failed to serialize public key: {e}"))?;
+    debug!("Generated new ED25519 keypair");
     Ok((private_pem.as_bytes().to_vec(), public_openssh))
 }
 
@@ -51,6 +53,7 @@ fn get_or_create_aes_key(app_data: &Path) -> Result<[u8; 32], String> {
     let key = generate_aes_key();
     std::fs::create_dir_all(app_data).map_err(|e| format!("Cannot create app data dir: {e}"))?;
     std::fs::write(&key_path, &key).map_err(|e| format!("Cannot write key file: {e}"))?;
+    debug!("Generated new local AES encryption key");
     Ok(key)
 }
 
@@ -100,15 +103,26 @@ pub fn decrypt_blob(app_data: &Path, encrypted: &[u8]) -> Result<Vec<u8>, String
 pub fn store_ssh_key(app_data: &Path, alias: &str, private_key: &[u8]) -> Result<(), String> {
     let encrypted = encrypt_blob(app_data, private_key)?;
     let path = app_data.join(format!("{KEY_ALIAS}-{alias}.enc"));
-    std::fs::write(&path, &encrypted).map_err(|e| format!("Cannot write encrypted key: {e}"))
+    std::fs::write(&path, &encrypted).map_err(|e| {
+        let msg = format!("Cannot write encrypted key: {e}");
+        warn!("store_ssh_key({alias}) failed: {msg}");
+        msg
+    })?;
+    debug!("Stored encrypted SSH key for alias={alias}");
+    Ok(())
 }
 
 /// Load and decrypt an SSH private key.
 pub fn load_ssh_key(app_data: &Path, alias: &str) -> Result<Vec<u8>, String> {
     let path = app_data.join(format!("{KEY_ALIAS}-{alias}.enc"));
-    let encrypted =
-        std::fs::read(&path).map_err(|e| format!("Cannot read encrypted key for {alias}: {e}"))?;
-    decrypt_blob(app_data, &encrypted)
+    let encrypted = std::fs::read(&path).map_err(|e| {
+        let msg = format!("Cannot read encrypted key for {alias}: {e}");
+        warn!("load_ssh_key({alias}) failed: {msg}");
+        msg
+    })?;
+    decrypt_blob(app_data, &encrypted).inspect_err(|e| {
+        warn!("load_ssh_key({alias}) decrypt failed: {e}");
+    })
 }
 
 /// Check if an encrypted key exists.
@@ -120,7 +134,9 @@ pub fn has_ssh_key(app_data: &Path, alias: &str) -> bool {
 /// Delete an encrypted key.
 pub fn delete_ssh_key(app_data: &Path, alias: &str) {
     let path = app_data.join(format!("{KEY_ALIAS}-{alias}.enc"));
-    let _ = std::fs::remove_file(&path);
+    if std::fs::remove_file(&path).is_ok() {
+        debug!("Deleted SSH key for alias={alias}");
+    }
 }
 
 /// Load the public key in OpenSSH format from the stored private key.
@@ -139,19 +155,30 @@ pub fn load_ssh_public_key(app_data: &Path, alias: &str) -> Result<String, Strin
 /// Store the SSH username for a host alias.
 pub fn store_ssh_username(app_data: &Path, alias: &str, username: &str) -> Result<(), String> {
     let path = app_data.join(format!("{KEY_ALIAS}-{alias}.user"));
-    std::fs::write(&path, username).map_err(|e| format!("Cannot write username: {e}"))
+    std::fs::write(&path, username).map_err(|e| {
+        let msg = format!("Cannot write username: {e}");
+        warn!("store_ssh_username({alias}) failed: {msg}");
+        msg
+    })
 }
 
 /// Load the SSH username for a host alias. Returns "mt" if not found.
 pub fn load_ssh_username(app_data: &Path, alias: &str) -> String {
     let path = app_data.join(format!("{KEY_ALIAS}-{alias}.user"));
-    std::fs::read_to_string(&path).unwrap_or_else(|_| "mt".to_string())
+    std::fs::read_to_string(&path).unwrap_or_else(|e| {
+        debug!("load_ssh_username({alias}) defaulting to 'mt': {e}");
+        "mt".to_string()
+    })
 }
 
 /// Store the SSH port for a host alias.
 pub fn store_ssh_port(app_data: &Path, alias: &str, port: u16) -> Result<(), String> {
     let path = app_data.join(format!("{KEY_ALIAS}-{alias}.port"));
-    std::fs::write(&path, port.to_string()).map_err(|e| format!("Cannot write port: {e}"))
+    std::fs::write(&path, port.to_string()).map_err(|e| {
+        let msg = format!("Cannot write port: {e}");
+        warn!("store_ssh_port({alias}) failed: {msg}");
+        msg
+    })
 }
 
 /// Load the SSH port for a host alias. Returns 22 if not found.
@@ -160,5 +187,8 @@ pub fn load_ssh_port(app_data: &Path, alias: &str) -> u16 {
     std::fs::read_to_string(&path)
         .ok()
         .and_then(|s| s.trim().parse().ok())
-        .unwrap_or(22)
+        .unwrap_or_else(|| {
+            debug!("load_ssh_port({alias}) defaulting to 22");
+            22
+        })
 }
