@@ -6,6 +6,11 @@ import { showToast, tauriInvoke } from '../app.js';
 
 const HOSTS_KEY = 'chops-hosts';
 
+// Hosts whose group is currently collapsed. In-memory only — resets on
+// app restart — since renderGroupedSessions rebuilds the DOM from scratch
+// on every refresh and this is what survives that rebuild.
+const collapsedHosts = new Set();
+
 // --- Host list persistence ---
 
 export function getHosts() {
@@ -59,13 +64,50 @@ export async function renderGroupedSessions(container) {
   for (const { host, listing, error } of results) {
     const group = document.createElement('div');
     group.className = 'host-group';
+    if (collapsedHosts.has(host)) group.classList.add('collapsed');
 
     const header = document.createElement('div');
     header.className = 'host-group-header';
-    header.innerHTML = `<span class="host-name">${esc(host)}</span>
-      <span class="host-count">${listing ? listing.sessions.length + ' sessions' : 'error'}</span>
-      <button class="tab-action-btn btn-remove-host" data-host="${esc(host)}">Remove</button>`;
+
+    const chevron = document.createElement('span');
+    chevron.className = 'host-chevron';
+    chevron.textContent = '▾';
+    header.appendChild(chevron);
+
+    const nameEl = document.createElement('span');
+    nameEl.className = 'host-name';
+    nameEl.textContent = host;
+    header.appendChild(nameEl);
+
+    const countEl = document.createElement('span');
+    countEl.className = 'host-count';
+    countEl.textContent = listing ? `${listing.sessions.length} sessions` : 'error';
+    header.appendChild(countEl);
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'tab-action-btn btn-remove-host';
+    removeBtn.textContent = 'Remove';
+    removeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeHost(host);
+      renderGroupedSessions(container);
+    });
+    header.appendChild(removeBtn);
+
+    header.addEventListener('click', () => {
+      if (collapsedHosts.has(host)) {
+        collapsedHosts.delete(host);
+      } else {
+        collapsedHosts.add(host);
+      }
+      group.classList.toggle('collapsed');
+    });
+
     group.appendChild(header);
+
+    const body = document.createElement('div');
+    body.className = 'host-group-body';
+    group.appendChild(body);
 
     if (error) {
       const errEl = document.createElement('div');
@@ -76,7 +118,7 @@ export async function renderGroupedSessions(container) {
       retryBtn.textContent = 'Retry';
       retryBtn.addEventListener('click', () => renderGroupedSessions(container));
       errEl.appendChild(retryBtn);
-      group.appendChild(errEl);
+      body.appendChild(errEl);
     } else if (listing) {
       const list = document.createElement('div');
       list.className = 'host-sessions';
@@ -164,7 +206,7 @@ export async function renderGroupedSessions(container) {
         list.appendChild(empty);
       }
 
-      group.appendChild(list);
+      body.appendChild(list);
     }
 
     container.appendChild(group);

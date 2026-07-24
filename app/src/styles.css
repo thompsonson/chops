@@ -1070,6 +1070,23 @@ select option { background: var(--surface); color: var(--text); }
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   font-size: 0.75rem;
+  cursor: pointer;
+  user-select: none;
+}
+.host-chevron {
+  color: var(--muted);
+  font-size: 0.6rem;
+  flex-shrink: 0;
+  transition: transform 0.15s;
+}
+.host-group.collapsed .host-chevron {
+  transform: rotate(-90deg);
+}
+.host-group.collapsed .host-group-header {
+  border-bottom: none;
+}
+.host-group.collapsed .host-group-body {
+  display: none;
 }
 .host-name {
   font-weight: 600;
