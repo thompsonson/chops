@@ -85,7 +85,7 @@ export async function renderGroupedSessions(container) {
     header.appendChild(countEl);
 
     const removeBtn = document.createElement('button');
-    removeBtn.className = 'tab-action-btn btn-remove-host';
+    removeBtn.className = 'action-btn btn-remove-host';
     removeBtn.textContent = 'Remove';
     removeBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -114,7 +114,7 @@ export async function renderGroupedSessions(container) {
       errEl.className = 'host-error';
       errEl.textContent = `Connection failed: ${error}`;
       const retryBtn = document.createElement('button');
-      retryBtn.className = 'tab-action-btn';
+      retryBtn.className = 'action-btn';
       retryBtn.textContent = 'Retry';
       retryBtn.addEventListener('click', () => renderGroupedSessions(container));
       errEl.appendChild(retryBtn);
@@ -160,7 +160,7 @@ export async function renderGroupedSessions(container) {
         actions.className = 'session-actions';
 
         const inspectBtn = document.createElement('button');
-        inspectBtn.className = 'session-action-btn';
+        inspectBtn.className = 'action-btn';
         inspectBtn.textContent = 'Inspect';
         inspectBtn.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -169,7 +169,7 @@ export async function renderGroupedSessions(container) {
         actions.appendChild(inspectBtn);
 
         const termBtn = document.createElement('button');
-        termBtn.className = 'session-action-btn';
+        termBtn.className = 'action-btn';
         termBtn.textContent = 'Terminal';
         // ttyd isn't tunneled per-host — it only ever points at the single
         // host configured in Settings. Disable rather than silently show
@@ -186,7 +186,7 @@ export async function renderGroupedSessions(container) {
         actions.appendChild(termBtn);
 
         const killBtn = document.createElement('button');
-        killBtn.className = 'session-action-btn btn-danger';
+        killBtn.className = 'action-btn btn-danger';
         killBtn.textContent = 'Kill';
         killBtn.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -195,7 +195,7 @@ export async function renderGroupedSessions(container) {
         actions.appendChild(killBtn);
 
         const sendMsgBtn = document.createElement('button');
-        sendMsgBtn.className = 'session-action-btn';
+        sendMsgBtn.className = 'action-btn';
         sendMsgBtn.textContent = 'Send';
         sendMsgBtn.addEventListener('click', (e) => {
           e.stopPropagation();

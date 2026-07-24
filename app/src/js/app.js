@@ -5,6 +5,7 @@ import { initCommands, clearConversation, copyAllMessages } from './commands.js'
 import { initTerminal, isTerminalOpen } from './terminal.js';
 import { initVoice } from './voice.js';
 import { initDebug, debugAppend, onDebugTabShown, onDebugTabHidden } from './debug.js';
+import { getHosts } from './session/sessions.js';
 
 // --- Tauri interop ---
 
@@ -225,8 +226,19 @@ function initSettings() {
   const setRefreshInterval = document.getElementById('set-refresh-interval');
   const setUpdateChannel = document.getElementById('set-update-channel');
 
-  async function open() {
+  function populateHostOptions() {
+    const hosts = getHosts();
+    // Keep the current value selectable even if it's fallen out of the
+    // Sessions host list (e.g. stale config, or list edited elsewhere).
+    if (settings.host && !hosts.includes(settings.host)) hosts.unshift(settings.host);
+    setHost.innerHTML = hosts.length
+      ? hosts.map(h => `<option value="${escapeHtml(h)}">${escapeHtml(h)}</option>`).join('')
+      : '<option value="">No hosts configured — add one in Sessions</option>';
     setHost.value = settings.host;
+  }
+
+  async function open() {
+    populateHostOptions();
     setWssPort.value = settings.wssPort;
     setTcpPort.value = settings.tcpPort;
     setApiPort.value = settings.apiPort;

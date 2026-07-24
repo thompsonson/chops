@@ -14,7 +14,7 @@ const terminalSessionName = document.getElementById('terminal-session-name');
 const btnCloseTerminal = document.getElementById('btn-close-terminal');
 
 // Inspect panel
-const inspectPanel = document.getElementById('inspect-panel');
+const inspectOverlay = document.getElementById('inspect-overlay');
 const inspectSessionName = document.getElementById('inspect-session-name');
 const inspectGitValue = document.getElementById('inspect-git-value');
 const inspectLastValue = document.getElementById('inspect-last-value');
@@ -117,28 +117,28 @@ function renderSessions(data) {
       actions.className = 'session-actions';
 
       const inspectBtn = document.createElement('button');
-      inspectBtn.className = 'session-action-btn';
+      inspectBtn.className = 'action-btn';
       inspectBtn.textContent = 'Inspect';
       inspectBtn.title = 'Show session details';
       inspectBtn.addEventListener('click', (e) => { e.stopPropagation(); inspectSession(s.name); });
       actions.appendChild(inspectBtn);
 
       const termBtn = document.createElement('button');
-      termBtn.className = 'session-action-btn';
+      termBtn.className = 'action-btn';
       termBtn.textContent = 'Terminal';
       termBtn.title = 'Open terminal';
       termBtn.addEventListener('click', (e) => { e.stopPropagation(); openTerminal(s.name); });
       actions.appendChild(termBtn);
 
       const killBtn = document.createElement('button');
-      killBtn.className = 'session-action-btn btn-danger';
+      killBtn.className = 'action-btn btn-danger';
       killBtn.textContent = 'Kill';
       killBtn.title = 'Stop session';
       killBtn.addEventListener('click', (e) => { e.stopPropagation(); stopSession(s.name); });
       actions.appendChild(killBtn);
 
       const sendMsgBtn = document.createElement('button');
-      sendMsgBtn.className = 'session-action-btn';
+      sendMsgBtn.className = 'action-btn';
       sendMsgBtn.textContent = 'Send';
       sendMsgBtn.title = 'Send message to agent pane';
       sendMsgBtn.addEventListener('click', (e) => {
@@ -177,7 +177,7 @@ function renderSessions(data) {
       row.appendChild(info);
 
       const startBtn = document.createElement('button');
-      startBtn.className = 'session-action-btn btn-start';
+      startBtn.className = 'action-btn btn-start';
       startBtn.textContent = p.host ? 'Start (SSH)' : 'Start';
       startBtn.addEventListener('click', () => startSession(p.name));
       row.appendChild(startBtn);
@@ -258,8 +258,7 @@ async function inspectSession(name) {
   inspectLastValue.textContent = '';
   inspectRepoValue.textContent = '';
   inspectTail.textContent = '';
-  inspectPanel.style.display = 'flex';
-  sessionList.classList.add('hidden');
+  inspectOverlay.classList.add('visible');
   await refreshInspect();
 }
 
@@ -271,8 +270,7 @@ async function inspectSessionFromHost(host, name) {
   inspectLastValue.textContent = '';
   inspectRepoValue.textContent = '';
   inspectTail.textContent = '';
-  inspectPanel.style.display = 'flex';
-  sessionList.classList.add('hidden');
+  inspectOverlay.classList.add('visible');
   try {
     const data = await dispatch({ type: 'inspect', host, session: name, lines: 0 });
     const git = data.git || {};
@@ -325,8 +323,7 @@ async function refreshInspect() {
 }
 
 function closeInspect() {
-  inspectPanel.style.display = 'none';
-  sessionList.classList.remove('hidden');
+  inspectOverlay.classList.remove('visible');
   inspectSessionName_ = '';
 }
 
@@ -697,6 +694,9 @@ export function initTerminal() {
   btnCloseTerminal.addEventListener('click', closeTerminal);
   btnCloseInspect.addEventListener('click', closeInspect);
   btnRefreshInspect.addEventListener('click', refreshInspect);
+  inspectOverlay.addEventListener('click', (e) => {
+    if (e.target === inspectOverlay) closeInspect();
+  });
   daemonRefreshBtn.addEventListener('click', () => {
     loadSessions();
   });
