@@ -223,6 +223,7 @@ function openTerminal(name) {
   terminalSessionName.textContent = name;
   terminalIframe.src = `${getTtydUrl()}?t=${Date.now()}`;
   terminalFrame.style.display = 'flex';
+  terminalFrame.classList.add('fullscreen');
   sessionList.classList.add('hidden');
   hostBar.classList.add('hidden');
   tabActions.classList.add('hidden');
@@ -237,6 +238,7 @@ function openTerminal(name) {
 
 function closeTerminal() {
   terminalFrame.style.display = 'none';
+  terminalFrame.classList.remove('fullscreen');
   sessionList.classList.remove('hidden');
   hostBar.classList.remove('hidden');
   tabActions.classList.remove('hidden');

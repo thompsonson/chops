@@ -377,6 +377,19 @@ header h1 { font-size: 1.25rem; font-weight: 600; }
   min-height: 0;
   margin-top: 0.5rem;
 }
+/* Full-viewport overlay while a terminal is open — covers the header and
+   tab bar too, since neither is useful while actively viewing a terminal. */
+.terminal-frame.fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
+           env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+  background: var(--bg);
+}
 .terminal-header {
   display: flex;
   align-items: center;
