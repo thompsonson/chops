@@ -247,6 +247,7 @@ header h1 { font-size: 1.25rem; font-weight: 600; }
 .session-card {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.5rem;
   padding: 0.6rem 0.7rem;
   margin-bottom: 0.35rem;
@@ -262,9 +263,9 @@ header h1 { font-size: 1.25rem; font-weight: 600; }
 }
 
 .session-info {
-  flex: 1;
+  flex: 1 1 140px;
   cursor: pointer;
-  min-width: 0;
+  min-width: 140px;
 }
 .session-name-row {
   display: flex;
