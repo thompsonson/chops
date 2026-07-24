@@ -659,7 +659,8 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .log {
   overflow-y: auto;
-  flex: 1;
+  max-height: 400px;
+  margin-top: 0.3rem;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--surface);

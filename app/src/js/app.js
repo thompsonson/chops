@@ -4,7 +4,6 @@ import { initMqtt, pingMqtt } from './mqtt.js';
 import { initCommands, clearConversation, copyAllMessages } from './commands.js';
 import { initTerminal, isTerminalOpen } from './terminal.js';
 import { initVoice } from './voice.js';
-import { clearLog, copyAllLog } from './messages.js';
 import { initDebug, debugAppend, onDebugTabShown, onDebugTabHidden } from './debug.js';
 
 // --- Tauri interop ---
@@ -104,12 +103,12 @@ function initTabs() {
 
   function updateTabActions(target) {
     const isSessions = target === 'sessions';
-    const isMessages = target === 'messages' || target === 'commands';
+    const isCommands = target === 'commands';
     tabActions.classList.toggle('hidden', isSessions && isTerminalOpen());
     btnRefresh.style.display = isSessions ? '' : 'none';
     lastUpdated.style.display = isSessions ? '' : 'none';
-    btnClear.style.display = isMessages ? '' : 'none';
-    btnCopyAll.style.display = isMessages ? '' : 'none';
+    btnClear.style.display = isCommands ? '' : 'none';
+    btnCopyAll.style.display = isCommands ? '' : 'none';
   }
 
   tabs.forEach(tab => {
@@ -137,12 +136,10 @@ function initTabActions() {
 
   btnClear.addEventListener('click', () => {
     if (activeTab === 'commands') clearConversation();
-    else if (activeTab === 'messages') clearLog();
   });
 
   btnCopyAll.addEventListener('click', () => {
     if (activeTab === 'commands') copyAllMessages();
-    else if (activeTab === 'messages') copyAllLog();
   });
 }
 

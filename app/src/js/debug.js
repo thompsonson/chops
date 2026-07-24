@@ -1,6 +1,7 @@
-// debug.js — Debug tab: config display, API testing, network log
+// debug.js — Debug tab: config display, API testing, network log, raw MQTT messages
 
 import { IS_TAURI, tauriInvoke, getApiBase, getTtydUrl, getHost, settings, showToast } from './app.js';
+import { clearLog, copyAllLog } from './messages.js';
 
 const debugConfig = document.getElementById('debug-config');
 const debugApiResult = document.getElementById('debug-api-result');
@@ -9,6 +10,8 @@ const btnDebugMqtt = document.getElementById('btn-debug-mqtt');
 const btnExportLogs = document.getElementById('btn-export-logs');
 const btnClearLogs = document.getElementById('btn-clear-logs');
 const debugLogsOutput = document.getElementById('debug-logs-output');
+const btnMessagesClear = document.getElementById('btn-messages-clear');
+const btnMessagesCopy = document.getElementById('btn-messages-copy');
 
 let logLines = [];
 const MAX_LOG_LINES = 200;
@@ -137,7 +140,11 @@ export function initDebug() {
   makeCollapsible('debug-section-config', { defaultCollapsed: true });
   makeCollapsible('debug-section-api', { defaultCollapsed: true });
   makeCollapsible('debug-section-network', { defaultCollapsed: true });
+  makeCollapsible('debug-section-messages', { defaultCollapsed: true });
   makeCollapsible('debug-section-applogs', { defaultCollapsed: false });
+
+  btnMessagesClear.addEventListener('click', clearLog);
+  btnMessagesCopy.addEventListener('click', copyAllLog);
 
   if (IS_TAURI) {
     btnExportLogs.addEventListener('click', async () => {

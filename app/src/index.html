@@ -37,7 +37,6 @@
   <nav class="tab-bar">
     <button class="tab active" data-tab="sessions">Sessions</button>
     <button class="tab" data-tab="commands">Commands</button>
-    <button class="tab" data-tab="messages">Messages</button>
     <button class="tab" data-tab="debug">Debug</button>
   </nav>
 
@@ -154,13 +153,6 @@
     </div>
   </div>
 
-  <!-- Messages tab -->
-  <div class="tab-content" id="tab-messages">
-    <div class="log" id="log">
-      <div class="empty">No messages yet.</div>
-    </div>
-  </div>
-
   <!-- Debug tab -->
   <div class="tab-content" id="tab-debug">
     <div class="debug-panel">
@@ -177,6 +169,14 @@
       <div class="debug-section" id="debug-section-network">
         <div class="debug-heading">Network Log</div>
         <pre class="debug-output debug-log" id="debug-log"></pre>
+      </div>
+      <div class="debug-section" id="debug-section-messages">
+        <div class="debug-heading">Raw MQTT Messages</div>
+        <button class="session-action-btn" id="btn-messages-clear">Clear</button>
+        <button class="session-action-btn" id="btn-messages-copy">Copy All</button>
+        <div class="log" id="log">
+          <div class="empty">No messages yet.</div>
+        </div>
       </div>
       <div class="debug-section" id="debug-section-applogs">
         <div class="debug-heading">App Logs</div>
