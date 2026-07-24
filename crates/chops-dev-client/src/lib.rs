@@ -188,13 +188,15 @@ impl DevClient {
         path: &str,
         body: Option<&serde_json::Value>,
     ) -> Result<String> {
-        let mut stream =
-            UnixStream::connect(&self.socket_path)
-                .await
-                .map_err(|e| Error::Connect {
-                    path: self.socket_path.clone(),
-                    source: e,
-                })?;
+        tracing::info!("dev-client: {method} {path} via {:?}", self.socket_path);
+
+        let mut stream = UnixStream::connect(&self.socket_path)
+            .await
+            .map_err(|e| Error::Connect {
+                path: self.socket_path.clone(),
+                source: e,
+            })
+            .inspect_err(|e| tracing::warn!("dev-client: {method} {path} failed: {e}"))?;
 
         let body_bytes = match body {
             Some(v) => serde_json::to_vec(v)?,
@@ -211,28 +213,44 @@ impl DevClient {
             body_bytes.len()
         );
 
-        stream.write_all(header.as_bytes()).await?;
+        stream.write_all(header.as_bytes()).await.inspect_err(|e| {
+            tracing::warn!("dev-client: {method} {path} write header failed: {e}");
+        })?;
         if !body_bytes.is_empty() {
-            stream.write_all(&body_bytes).await?;
+            stream.write_all(&body_bytes).await.inspect_err(|e| {
+                tracing::warn!("dev-client: {method} {path} write body failed: {e}");
+            })?;
         }
-        stream.flush().await?;
+        stream.flush().await.inspect_err(|e| {
+            tracing::warn!("dev-client: {method} {path} flush failed: {e}");
+        })?;
 
         let mut raw = Vec::new();
-        stream.read_to_end(&mut raw).await?;
+        stream.read_to_end(&mut raw).await.inspect_err(|e| {
+            tracing::warn!("dev-client: {method} {path} read failed: {e}");
+        })?;
 
         // Split headers from body on CRLFCRLF boundary.
         let split = raw
             .windows(4)
             .position(|w| w == b"\r\n\r\n")
-            .ok_or(Error::MalformedResponse)?;
+            .ok_or(Error::MalformedResponse)
+            .inspect_err(|_| {
+                tracing::warn!(
+                    "dev-client: {method} {path} malformed response ({} bytes)",
+                    raw.len()
+                );
+            })?;
 
         let headers = std::str::from_utf8(&raw[..split]).unwrap_or("");
         let status = parse_status(headers)?;
         let body_str = String::from_utf8_lossy(&raw[split + 4..]).into_owned();
 
         if (200..300).contains(&status) {
+            tracing::info!("dev-client: {method} {path} -> {status}");
             Ok(body_str)
         } else {
+            tracing::warn!("dev-client: {method} {path} -> {status}: {body_str}");
             Err(Error::DaemonError {
                 status,
                 body: body_str,
