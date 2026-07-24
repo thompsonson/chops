@@ -164,21 +164,21 @@
   <!-- Debug tab -->
   <div class="tab-content" id="tab-debug">
     <div class="debug-panel">
-      <div class="debug-section">
+      <div class="debug-section" id="debug-section-config">
         <div class="debug-heading">Configuration</div>
         <pre class="debug-output" id="debug-config"></pre>
       </div>
-      <div class="debug-section">
+      <div class="debug-section" id="debug-section-api">
         <div class="debug-heading">API Test</div>
         <button class="session-action-btn" id="btn-debug-sessions">Fetch /api/sessions</button>
         <button class="session-action-btn" id="btn-debug-mqtt">Test MQTT</button>
         <pre class="debug-output" id="debug-api-result">Click a button to test...</pre>
       </div>
-      <div class="debug-section">
+      <div class="debug-section" id="debug-section-network">
         <div class="debug-heading">Network Log</div>
         <pre class="debug-output debug-log" id="debug-log"></pre>
       </div>
-      <div class="debug-section">
+      <div class="debug-section" id="debug-section-applogs">
         <div class="debug-heading">App Logs</div>
         <button class="session-action-btn" id="btn-export-logs">Copy to Clipboard</button>
         <button class="session-action-btn btn-danger" id="btn-clear-logs">Clear Logs</button>

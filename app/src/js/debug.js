@@ -110,6 +110,21 @@ export function onDebugTabHidden() {
   }
 }
 
+// --- Collapsible sections ---
+
+function makeCollapsible(sectionId, { defaultCollapsed = false } = {}) {
+  const section = document.getElementById(sectionId);
+  const heading = section.querySelector('.debug-heading');
+
+  const chevron = document.createElement('span');
+  chevron.className = 'debug-chevron';
+  chevron.textContent = '▾';
+  heading.prepend(chevron);
+
+  if (defaultCollapsed) section.classList.add('collapsed');
+  heading.addEventListener('click', () => section.classList.toggle('collapsed'));
+}
+
 // --- Init ---
 
 export function initDebug() {
@@ -117,6 +132,12 @@ export function initDebug() {
   btnDebugSessions.addEventListener('click', testSessions);
   btnDebugMqtt.addEventListener('click', testMqtt);
   debugAppend('init', `Debug tab ready. IS_TAURI=${IS_TAURI}`);
+
+  // Collapse the noisier sections by default so App Logs gets the room.
+  makeCollapsible('debug-section-config', { defaultCollapsed: true });
+  makeCollapsible('debug-section-api', { defaultCollapsed: true });
+  makeCollapsible('debug-section-network', { defaultCollapsed: true });
+  makeCollapsible('debug-section-applogs', { defaultCollapsed: false });
 
   if (IS_TAURI) {
     btnExportLogs.addEventListener('click', async () => {

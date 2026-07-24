@@ -898,7 +898,10 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 /* --- Debug tab --- */
 
 .debug-panel {
+  display: flex;
+  flex-direction: column;
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding-bottom: 0.5rem;
 }
@@ -906,12 +909,39 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   margin-bottom: 1rem;
 }
 .debug-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
   font-size: 0.7rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--muted);
   margin-bottom: 0.3rem;
+  cursor: pointer;
+  user-select: none;
+}
+.debug-chevron {
+  display: inline-block;
+  font-size: 0.6rem;
+  transition: transform 0.15s;
+}
+.debug-section.collapsed .debug-chevron {
+  transform: rotate(-90deg);
+}
+.debug-section.collapsed > *:not(.debug-heading) {
+  display: none;
+}
+/* App Logs should dominate the tab once the others are tucked away */
+.debug-section#debug-section-applogs:not(.collapsed) {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.debug-section#debug-section-applogs:not(.collapsed) #debug-logs-output {
+  flex: 1;
+  max-height: none;
 }
 .debug-output {
   background: var(--surface);
