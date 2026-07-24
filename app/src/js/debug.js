@@ -1,6 +1,6 @@
 // debug.js — Debug tab: config display, API testing, network log
 
-import { IS_TAURI, tauriInvoke, getApiBase, getTtydUrl, getHost, settings } from './app.js';
+import { IS_TAURI, tauriInvoke, getApiBase, getTtydUrl, getHost, settings, showToast } from './app.js';
 
 const debugConfig = document.getElementById('debug-config');
 const debugApiResult = document.getElementById('debug-api-result');
@@ -81,6 +81,35 @@ async function testMqtt() {
   }
 }
 
+// --- App logs (Rust-side tracing output, read from disk) ---
+
+const APP_LOGS_REFRESH_MS = 2000;
+let appLogsTimer = null;
+
+async function refreshAppLogs() {
+  try {
+    const logs = await tauriInvoke('get_logs');
+    debugLogsOutput.textContent = logs || '(empty)';
+  } catch (e) {
+    debugLogsOutput.textContent = `Error: ${e}`;
+  }
+}
+
+/// Called by app.js when the Debug tab becomes the active tab.
+export function onDebugTabShown() {
+  if (!IS_TAURI || appLogsTimer) return;
+  refreshAppLogs();
+  appLogsTimer = setInterval(refreshAppLogs, APP_LOGS_REFRESH_MS);
+}
+
+/// Called by app.js when navigating away from the Debug tab.
+export function onDebugTabHidden() {
+  if (appLogsTimer) {
+    clearInterval(appLogsTimer);
+    appLogsTimer = null;
+  }
+}
+
 // --- Init ---
 
 export function initDebug() {
@@ -89,7 +118,6 @@ export function initDebug() {
   btnDebugMqtt.addEventListener('click', testMqtt);
   debugAppend('init', `Debug tab ready. IS_TAURI=${IS_TAURI}`);
 
-  // Log export/clear (Tauri only)
   if (IS_TAURI) {
     btnExportLogs.addEventListener('click', async () => {
       try {
@@ -97,6 +125,7 @@ export function initDebug() {
         debugLogsOutput.textContent = logs || '(empty)';
         await navigator.clipboard.writeText(logs);
         debugAppend('logs', 'Copied to clipboard');
+        showToast('Logs copied to clipboard', 'ok');
       } catch (e) {
         debugLogsOutput.textContent = `Error: ${e}`;
       }
@@ -105,7 +134,7 @@ export function initDebug() {
     btnClearLogs.addEventListener('click', async () => {
       try {
         await tauriInvoke('clear_logs');
-        debugLogsOutput.textContent = '(cleared)';
+        await refreshAppLogs();
         debugAppend('logs', 'Cleared');
       } catch (e) {
         debugLogsOutput.textContent = `Error: ${e}`;
@@ -116,5 +145,6 @@ export function initDebug() {
     btnClearLogs.disabled = true;
     btnExportLogs.title = 'Logs require Tauri';
     btnClearLogs.title = 'Logs require Tauri';
+    debugLogsOutput.textContent = 'Logs require the desktop/mobile app.';
   }
 }

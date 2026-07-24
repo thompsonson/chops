@@ -5,7 +5,7 @@ import { initCommands, clearConversation, copyAllMessages } from './commands.js'
 import { initTerminal, isTerminalOpen } from './terminal.js';
 import { initVoice } from './voice.js';
 import { clearLog, copyAllLog } from './messages.js';
-import { initDebug, debugAppend } from './debug.js';
+import { initDebug, debugAppend, onDebugTabShown, onDebugTabHidden } from './debug.js';
 
 // --- Tauri interop ---
 
@@ -121,6 +121,8 @@ function initTabs() {
       tab.classList.add('active');
       document.getElementById(`tab-${target}`).classList.add('active');
       updateTabActions(target);
+      if (target === 'debug') onDebugTabShown();
+      else onDebugTabHidden();
     });
   });
 
