@@ -2,7 +2,7 @@
 
 import { initMqtt, pingMqtt } from './mqtt.js';
 import { initCommands, clearConversation, copyAllMessages } from './commands.js';
-import { initTerminal } from './terminal.js';
+import { initTerminal, isTerminalOpen } from './terminal.js';
 import { initVoice } from './voice.js';
 import { clearLog, copyAllLog } from './messages.js';
 import { initDebug, debugAppend } from './debug.js';
@@ -105,7 +105,7 @@ function initTabs() {
   function updateTabActions(target) {
     const isSessions = target === 'sessions';
     const isMessages = target === 'messages' || target === 'commands';
-    tabActions.classList.toggle('hidden', false);
+    tabActions.classList.toggle('hidden', isSessions && isTerminalOpen());
     btnRefresh.style.display = isSessions ? '' : 'none';
     lastUpdated.style.display = isSessions ? '' : 'none';
     btnClear.style.display = isMessages ? '' : 'none';

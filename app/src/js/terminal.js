@@ -6,6 +6,8 @@ import { dispatch } from './session/SessionAction.js';
 import { renderGroupedSessions, getHosts, addHost, removeHost, isAndroid, provisionAndroidHost } from './session/sessions.js';
 
 const sessionList = document.getElementById('session-list');
+const hostBar = document.getElementById('host-bar');
+const tabActions = document.getElementById('tab-actions');
 const terminalFrame = document.getElementById('terminal-frame');
 const terminalIframe = document.getElementById('terminal-iframe');
 const terminalSessionName = document.getElementById('terminal-session-name');
@@ -207,6 +209,12 @@ function selectSession(name) {
 
 // --- Terminal ---
 
+let terminalOpen = false;
+
+export function isTerminalOpen() {
+  return terminalOpen;
+}
+
 function openTerminal(name) {
   closeInspect();
   selectSession(name);
@@ -216,6 +224,9 @@ function openTerminal(name) {
   terminalIframe.src = `${getTtydUrl()}?t=${Date.now()}`;
   terminalFrame.style.display = 'flex';
   sessionList.classList.add('hidden');
+  hostBar.classList.add('hidden');
+  tabActions.classList.add('hidden');
+  terminalOpen = true;
   // Focus iframe so keyboard input goes to ttyd
   terminalIframe.addEventListener('load', () => {
     terminalIframe.focus();
@@ -227,7 +238,10 @@ function openTerminal(name) {
 function closeTerminal() {
   terminalFrame.style.display = 'none';
   sessionList.classList.remove('hidden');
+  hostBar.classList.remove('hidden');
+  tabActions.classList.remove('hidden');
   terminalIframe.src = 'about:blank';
+  terminalOpen = false;
 }
 
 // --- Inspect ---
