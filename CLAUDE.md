@@ -98,7 +98,7 @@ systemctl --user restart chops-agent chops-plugin chops-web
 ├── chops-agent.service       # agent-core (MQTT relay to AtomicGuard)
 ├── chops-plugin.service      # plugin-runner (tmux/vscode/termux executor)
 ├── chops-web.service         # web-ui (HTTPS :8443, HTTP fallback :8080)
-├── chops-ttyd.service        # ttyd (read-only tmux viewer :7681)
+├── chops-ttyd.service        # ttyd (writable tmux viewer :7681)
 └── chops-stt.service         # stt-publisher (enable when whisper.cpp is ready)
 ```
 
@@ -151,7 +151,7 @@ The `dev` script supports headless management for the web UI:
 
 The primary UI at `app/src/`. Modular JS (`app/src/js/`) with three tabs:
 - **Commands** — conversation feed with conversation_id grouping, workflow progress cards, interactive escalation cards (specification + feedback textareas, retry button), send command input + push-to-talk mic (whisper-rs)
-- **Terminal** — session selector with start/stop, read-only tmux viewer (ttyd iframe)
+- **Terminal** — session selector with start/stop, writable tmux viewer (ttyd iframe)
 - **Messages** — raw MQTT message log for debugging
 
 Features: MQTT ping button, Clear/Copy All buttons, copy-message context menu (right-click/long-press), toast notifications, native notifications for escalations.

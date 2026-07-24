@@ -2,7 +2,7 @@
 // Reads hosts from localStorage, groups sessions by host
 
 import { dispatch } from './SessionAction.js';
-import { showToast, tauriInvoke } from '../app.js';
+import { showToast, tauriInvoke, settings } from '../app.js';
 
 const HOSTS_KEY = 'chops-hosts';
 
@@ -171,10 +171,18 @@ export async function renderGroupedSessions(container) {
         const termBtn = document.createElement('button');
         termBtn.className = 'session-action-btn';
         termBtn.textContent = 'Terminal';
-        termBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          window.dispatchEvent(new CustomEvent('open-terminal', { detail: { host, name: s.name } }));
-        });
+        // ttyd isn't tunneled per-host — it only ever points at the single
+        // host configured in Settings. Disable rather than silently show
+        // the wrong host's terminal (or a stale/mismatched session).
+        if (host !== settings.host) {
+          termBtn.disabled = true;
+          termBtn.title = `Terminal view is only available for ${settings.host} (configured in Settings). Use Inspect for ${host}.`;
+        } else {
+          termBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            window.dispatchEvent(new CustomEvent('open-terminal', { detail: { host, name: s.name } }));
+          });
+        }
         actions.appendChild(termBtn);
 
         const killBtn = document.createElement('button');

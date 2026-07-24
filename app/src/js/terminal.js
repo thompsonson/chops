@@ -732,6 +732,13 @@ export function initTerminal() {
   });
   window.addEventListener('open-terminal', (e) => {
     const { host, name } = e.detail;
+    // ttyd is not tunneled per-host — it only ever points at settings.host.
+    // sessions.js already disables the button for other hosts; guard here
+    // too in case this event is ever dispatched from elsewhere.
+    if (host && host !== settings.host) {
+      showToast(`Terminal view isn't available for ${host} yet — use Inspect instead`, 'warn');
+      return;
+    }
     selectSession(name);
     openTerminal(name);
   });

@@ -126,7 +126,7 @@ HTTPS web dashboard built with axum + rustls. Serves `web/index.html` and expose
 - Voice input via Web Speech API (mic button)
 - Text input → publishes to `voice/transcriptions` via MQTT.js over WebSocket
 - Session dropdown with start/stop/switch (calls `dev start/stop/list`)
-- Read-only tmux terminal viewer (ttyd embedded via iframe)
+- Interactive tmux terminal viewer (ttyd embedded via iframe, `-W`/writable)
 - Collapsible debug message log
 - PWA support (installable on mobile)
 
@@ -162,7 +162,7 @@ All components run as systemd user services. They start on boot, restart on fail
 ├── chops-agent.service       ← agent-core (intent parser + accumulator)
 ├── chops-plugin.service      ← plugin-runner (tmux/vscode/termux executor)
 ├── chops-web.service         ← web-ui (HTTPS :8443)
-├── chops-ttyd.service        ← ttyd (read-only tmux viewer :7681)
+├── chops-ttyd.service        ← ttyd (writable tmux viewer :7681)
 └── chops-stt.service         ← stt-publisher (enable when whisper.cpp is ready)
 ```
 
