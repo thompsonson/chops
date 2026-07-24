@@ -456,18 +456,27 @@ async fn ssh_authorize_key(
 
 // -- Log export -------------------------------------------------------------
 
+/// The single source of truth for where chops.log lives. Falls back to the
+/// system temp dir if app_data_dir() is unavailable, so this can never
+/// disagree with itself between where setup() writes and where get_logs()/
+/// clear_logs() read — unlike a bare `.unwrap_or_default()` at the write
+/// site, which would silently point writes at a stray relative path while
+/// reads kept looking in the real app-data directory.
+fn log_file_path(app: &tauri::AppHandle) -> std::path::PathBuf {
+    app.path()
+        .app_data_dir()
+        .unwrap_or_else(|_| std::env::temp_dir())
+        .join("chops.log")
+}
+
 #[tauri::command]
 async fn get_logs(app: tauri::AppHandle) -> Result<String, String> {
-    let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    let path = app_data.join("chops.log");
-    log::read_log(&path).map_err(|e| e.to_string())
+    log::read_log(&log_file_path(&app)).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 async fn clear_logs(app: tauri::AppHandle) -> Result<(), String> {
-    let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    let path = app_data.join("chops.log");
-    log::clear_log(&path).map_err(|e| e.to_string())
+    log::clear_log(&log_file_path(&app)).map_err(|e| e.to_string())
 }
 
 pub fn run() {
@@ -497,33 +506,36 @@ pub fn run() {
         builder
             .setup(move |app| {
                 // Init log capture + tracing (with wry debug output)
-                let app_data = app.path().app_data_dir().unwrap_or_default();
-                let log_path = app_data.join("chops.log");
+                let log_path = log_file_path(app.handle());
                 log::set_panic_log_path(log_path.clone());
-                if let Ok(log_file) = log::open_log(&log_path) {
+                let log_file_result = log::open_log(&log_path);
+                let wrote_to_file = log_file_result.is_ok();
+                let filter = || {
+                    tracing_subscriber::EnvFilter::builder()
+                        .with_default_directive(tracing_subscriber::filter::LevelFilter::INFO.into())
+                        .parse_lossy("wry=debug")
+                };
+                if let Ok(log_file) = log_file_result {
                     tracing_subscriber::fmt()
-                        .with_env_filter(
-                            tracing_subscriber::EnvFilter::builder()
-                                .with_default_directive(
-                                    tracing_subscriber::filter::LevelFilter::INFO.into(),
-                                )
-                                .parse_lossy("wry=debug"),
-                        )
+                        .with_env_filter(filter())
                         .with_writer(log_file)
                         .with_ansi(false)
                         .init();
                 } else {
                     tracing_subscriber::fmt()
-                        .with_env_filter(
-                            tracing_subscriber::EnvFilter::builder()
-                                .with_default_directive(
-                                    tracing_subscriber::filter::LevelFilter::INFO.into(),
-                                )
-                                .parse_lossy("wry=debug"),
-                        )
+                        .with_env_filter(filter())
                         .with_ansi(false)
                         .init();
                 }
+                // Guaranteed baseline line: proves the subscriber + file
+                // writer actually work even on a run that never touches
+                // MQTT or a tunnel (e.g. mobile, or an already-idle session).
+                info!(
+                    "chops-app {} started, log_path={:?}, file_logging={}",
+                    env!("CARGO_PKG_VERSION"),
+                    log_path,
+                    wrote_to_file
+                );
                 let state = AppState {
                     mqtt: mqtt.clone(),
                     stt: stt.clone(),
