@@ -68,6 +68,15 @@
         <button class="action-btn" id="btn-close-terminal">Close</button>
       </div>
       <iframe id="terminal-iframe"></iframe>
+      <!-- Terminal scroll: page tmux copy-mode up/down (touch swipe doesn't reach the ttyd iframe) -->
+      <div class="terminal-scroll-bar">
+        <button class="mic-btn" id="terminal-scroll-up" title="Scroll up (tmux copy-mode)">
+          <svg viewBox="0 0 24 24"><path d="M12 8l-6 6h12z"/></svg>
+        </button>
+        <button class="mic-btn" id="terminal-scroll-down" title="Scroll down">
+          <svg viewBox="0 0 24 24"><path d="M12 16l6-6H6z"/></svg>
+        </button>
+      </div>
       <!-- Terminal mic: transcribe and paste into pane -->
       <div class="terminal-mic-bar">
         <button class="mic-btn" id="terminal-mic" title="Hold to record, paste into terminal">
