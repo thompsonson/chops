@@ -589,6 +589,47 @@ sessionSendOk.addEventListener('click', async () => {
   pendingSendHost = null;
 });
 
+// --- Terminal scroll (page tmux copy-mode up/down) ---
+// Touch swipe can't scroll the ttyd iframe's xterm.js content (upstream
+// limitation: wheel events are translated to tmux escape sequences, touch
+// drag isn't — see xtermjs/xterm.js#1007). These buttons send the same
+// byte sequences a real keyboard/mouse would, using tmux's default prefix
+// (Ctrl-b) to enter copy-mode. Paging down to the bottom exits copy-mode
+// automatically (default tmux behavior).
+
+const terminalScrollUp = document.getElementById('terminal-scroll-up');
+const terminalScrollDown = document.getElementById('terminal-scroll-down');
+
+const TMUX_PREFIX = '\x02'; // Ctrl-b, tmux default prefix
+const ENTER_COPY_MODE = `${TMUX_PREFIX}[`;
+const KEY_PAGE_UP = '\x1b[5~';
+const KEY_PAGE_DOWN = '\x1b[6~';
+
+// Bypasses sendKeysToTerminal(): it appends Enter when the review popup's
+// "press enter" checkbox is checked, and Enter cancels tmux copy-mode.
+async function sendRawKeys(keys) {
+  if (!selectedSession) return;
+  const pane = '1.1';
+  if (IS_TAURI) {
+    try {
+      await dispatch({ type: 'send_keys', session: selectedSession, pane, keys });
+    } catch (e) {
+      debugAppend('keys', `ERROR: ${e}`);
+    }
+    return;
+  }
+  const url = `${getApiBase()}/api/sessions/${encodeURIComponent(selectedSession)}/panes/${pane}/keys`;
+  try {
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keys }),
+    });
+  } catch (e) {
+    debugAppend('keys', `ERROR: ${e}`);
+  }
+}
+
 // --- Terminal mic (record → transcribe → review → paste into pane) ---
 
 const terminalMic = document.getElementById('terminal-mic');
@@ -746,6 +787,10 @@ export function initTerminal() {
     const { host, name } = e.detail;
     openSessionSendPopup(name, host);
   });
+
+  // Terminal scroll
+  terminalScrollUp.addEventListener('click', () => sendRawKeys(ENTER_COPY_MODE + KEY_PAGE_UP));
+  terminalScrollDown.addEventListener('click', () => sendRawKeys(KEY_PAGE_DOWN));
 
   // Terminal mic
   terminalMic.addEventListener('mousedown', (e) => { e.preventDefault(); tStartRecording(); });
