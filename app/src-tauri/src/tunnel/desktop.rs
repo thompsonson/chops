@@ -18,7 +18,10 @@ pub(crate) struct DesktopTunnel {
 
 impl DesktopTunnel {
     pub fn open(hostname: &str, remote_path: &str, socket_path: &Path) -> Result<Self, String> {
-        info!("Spawning ssh tunnel to {hostname} -> {}", socket_path.display());
+        info!(
+            "Spawning ssh tunnel to {hostname} -> {}",
+            socket_path.display()
+        );
 
         let mut child = Command::new("ssh")
             .args([
@@ -62,7 +65,10 @@ impl DesktopTunnel {
             ));
         }
 
-        info!("ssh tunnel to {hostname} ready at {}", socket_path.display());
+        info!(
+            "ssh tunnel to {hostname} ready at {}",
+            socket_path.display()
+        );
 
         Ok(Self {
             child: Some(child),

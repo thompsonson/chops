@@ -120,7 +120,9 @@ impl AndroidTunnel {
         }
 
         if !sock.exists() {
-            let err = error.lock().ok()
+            let err = error
+                .lock()
+                .ok()
                 .and_then(|mut e| e.take())
                 .unwrap_or_else(|| {
                     if thread.is_finished() {

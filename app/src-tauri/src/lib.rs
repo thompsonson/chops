@@ -512,7 +512,9 @@ pub fn run() {
                 let wrote_to_file = log_file_result.is_ok();
                 let filter = || {
                     tracing_subscriber::EnvFilter::builder()
-                        .with_default_directive(tracing_subscriber::filter::LevelFilter::INFO.into())
+                        .with_default_directive(
+                            tracing_subscriber::filter::LevelFilter::INFO.into(),
+                        )
                         .parse_lossy("wry=debug")
                 };
                 if let Ok(log_file) = log_file_result {

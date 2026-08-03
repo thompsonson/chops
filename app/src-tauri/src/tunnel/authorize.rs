@@ -129,9 +129,7 @@ pub async fn authorize_key(
         Some(code) => {
             let err_msg = String::from_utf8_lossy(&stderr);
             error!("Key install failed (exit={code}): {err_msg}");
-            return Err(format!(
-                "Remote command failed (exit={code}): {err_msg}",
-            ));
+            return Err(format!("Remote command failed (exit={code}): {err_msg}",));
         }
     }
 
@@ -156,7 +154,10 @@ mod tests {
     #[test]
     fn test_key_install_command_contains_echo_ok() {
         let cmd = build_install_command("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI test-key");
-        assert!(cmd.ends_with("&& echo OK"), "command should produce stdout: {cmd}");
+        assert!(
+            cmd.ends_with("&& echo OK"),
+            "command should produce stdout: {cmd}"
+        );
     }
 
     #[test]
