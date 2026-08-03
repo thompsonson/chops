@@ -24,7 +24,7 @@ chrono = "0.4"
 anyhow = ">=1.0.103"
 url = "2"
 chops-dev-client = { path = "../../crates/chops-dev-client" }
-aes-gcm = "0.10"
+aes-gcm = "0.11"
 ssh-key = { version = "0.6", features = ["ed25519"] }
 rand = "0.8"
 

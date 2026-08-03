@@ -1,7 +1,8 @@
 use aes_gcm::{
-    aead::{Aead, KeyInit, OsRng},
+    aead::{Aead, KeyInit},
     Aes256Gcm, Key, Nonce,
 };
+use rand::rngs::OsRng;
 use rand::RngCore;
 use ssh_key::private::{Ed25519Keypair, PrivateKey};
 use std::path::Path;
@@ -60,15 +61,17 @@ fn get_or_create_aes_key(app_data: &Path) -> Result<[u8; 32], String> {
 /// Encrypt plaintext with AES-256-GCM. Returns nonce || ciphertext.
 pub fn encrypt_blob(app_data: &Path, plaintext: &[u8]) -> Result<Vec<u8>, String> {
     let key_bytes = get_or_create_aes_key(app_data)?;
-    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
-    let cipher = Aes256Gcm::new(key);
+    let key = Key::<Aes256Gcm>::try_from(&key_bytes[..])
+        .map_err(|_| "Invalid AES key length".to_string())?;
+    let cipher = Aes256Gcm::new(&key);
 
     let mut nonce_bytes = [0u8; NONCE_LEN];
     rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
-    let nonce = Nonce::from_slice(&nonce_bytes);
+    let nonce =
+        Nonce::try_from(&nonce_bytes[..]).map_err(|_| "Invalid nonce length".to_string())?;
 
     let ciphertext = cipher
-        .encrypt(nonce, plaintext)
+        .encrypt(&nonce, plaintext)
         .map_err(|e| format!("Encryption failed: {e}"))?;
 
     // Prepend nonce to ciphertext
@@ -84,14 +87,15 @@ pub fn decrypt_blob(app_data: &Path, encrypted: &[u8]) -> Result<Vec<u8>, String
     }
 
     let key_bytes = get_or_create_aes_key(app_data)?;
-    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
-    let cipher = Aes256Gcm::new(key);
+    let key = Key::<Aes256Gcm>::try_from(&key_bytes[..])
+        .map_err(|_| "Invalid AES key length".to_string())?;
+    let cipher = Aes256Gcm::new(&key);
 
     let (nonce_bytes, ciphertext) = encrypted.split_at(NONCE_LEN);
-    let nonce = Nonce::from_slice(nonce_bytes);
+    let nonce = Nonce::try_from(nonce_bytes).map_err(|_| "Invalid nonce length".to_string())?;
 
     cipher
-        .decrypt(nonce, ciphertext)
+        .decrypt(&nonce, ciphertext)
         .map_err(|_| "Decryption failed (wrong key or corrupted)".into())
 }
 
